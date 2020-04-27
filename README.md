@@ -1,37 +1,50 @@
-## Welcome to GitHub Pages
+## Azure CLI script to configure Oracle DataGuard FSFO
 
-You can use the [editor on GitHub](https://github.com/tigormanmsft/dg-fsfo/edit/master/README.md) to maintain and preview the content for your website in Markdown files.
+This bash script includes Azure CLI commands to fully automate the following given a subscription and resource group in Azure...
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+1. Create a storage account in the specified Azure region
+2. Create a virtual network (vnet) and subnet
+3. Create a network security group (NSG) and rules to permit access by SSH
+4. Create two "database" VMs and one "observer" VM, using an Oracle database Enterprise Edition URN from the marketplace
+5. Create a data disk on each "database" VM using the specified managed disk
+6. Label, paritition, and format the data disk into an EXT4 filesystem mounted at "/u02" on each "database" VM
+7. Use the Oracle Database Creation Assistant (DBCA) to create an Oracle database and listener on the primary "database" VM
+8. Configure the primary database for DataGuard
+9. Duplicate the primary database to the standby "database" VM using DBCA
+10. Configuration the standby database for DataGuard
+11. Finish the DataGuard FSFO configuration using the DataGuard DGMGRL utility
+12. Configure the "observer" VM and start the "observer" process
 
-### Markdown
+Each of the three VMs have public IP addresses with SSH public-key authentication (PKA) established, so the public IP addresses can be viewed either through the Azure Portal or displayed in the output from the "cr_oradg.sh" script.
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+To test the actions of "switchover" and "failover", SSH into the the "oracle" account of the "observer" VM and run the DGMGRL utility after connecting as the SYS database account using the TNS string "${DB_NAME}_dgmgrl".
 
-```markdown
-Syntax highlighted code block
+For example, if the "${ORACLE_SID}" value is "oradg01", then the DB_NAME of the primary database on the first VM will also be "oradg01", while the DB_NAME of the standby database on the second VM will be "oradg01_stdby".
 
-# Header 1
-## Header 2
-### Header 3
+Therefore, starting from the Azure cloud shell where the "cr_oradg.sh" script was executed, perform the following steps to test switchover...
 
-- Bulleted
-- List
-
-1. Numbered
-2. List
-
-**Bold** and _Italic_ and `Code` text
-
-[Link](url) and ![Image](src)
-```
-
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
-
-### Jekyll Themes
-
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/tigormanmsft/dg-fsfo/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
-
-### Support or Contact
-
-Having trouble with Pages? Check out our [documentation](https://help.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+1. SSH into the "observer" VM using SSH public-key authentication via the administrative OS account
+   - if the admin OS account is "tigorman" and the public IP address is "10.20.30.40", use "ssh tigorman@10.20.30.40"
+2. Then, change from the administrative OS account to the "oracle" OS account
+   - use "sudo su - oracle"
+3. Initialize the ORACLE_SID environment variable
+   - use "export ORACLE_SID=<value>". For example, if the value of ORACLE_SID is "oradg01", then use "export ORACLE_SID=oradg01".
+4. Login to the DataGuard Broker DGMGRL utility
+   - use the command "dgmgrl sys/<password>@<tns-string-for-dgmgrl>"
+   - where "<password>" is the password for the SYS database account set by the "cr_oradg.sh" script (default: "oracleA1")
+   - where "<tns-string-for-dgmgrl>" is "<db-name>_dgmgrl"
+      - where "db-name" is "<oracle-sid>" for the primary database and "<oracle-sid>_stdby" for the standby database
+      - if "ORACLE_SID" is "oradg01", use "oradg01_dgmgrl" for the primary and "oradg01_stdby_dgmgrl" for the standby
+   - using the defaults cited above, "dgmgrl sys/oracleA1@oradg01_dgmgrl" will connect the DataGuard broker to the primary
+5. Once connected to the DataGuard Broker DGMGRL utilty, show the DataGuard configuration status
+   - at the "DGMGRL>" prompt, run "show configuration"
+6. Once connected to broker utility, also show the Fast-Start Failover configuration status
+   - at the "DGMGRL>" prompt, run "show fast_start failover"
+7. If both "show configuration" and "show fast_start failover" display no warnings or errors...
+   - switchover the PRIMARY role from "oradg01" on the first VM to "oradg01_stdby" on the second VM
+   - when completed, "oradg01_stdby" will be PRIMARY and "oradg01" will be STANDBY
+8. Switchover can be performed in either direction as desired
+9. Failover can be triggered by performing SHUTDOWN ABORT on the database with the PRIMARY role
+   - the failed former PRIMARY cannot become a STANDBY until it is manually mounted with STARTUP MOUNT
+   - after the failed former PRIMARY has been manually mounted, it must be reinstated into the configuration in DGMGRL
+      - use the command "reinstate database <db-name>" to complete reinstatement of the failed database as a standby
