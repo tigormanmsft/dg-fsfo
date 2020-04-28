@@ -1,6 +1,6 @@
 ## Azure CLI script to configure Oracle DataGuard FSFO
 
-This bash script includes Azure CLI commands to fully automate the following steps, given a subscription and a resource group...
+This bash script (i.e. "cr_oradg.sh") includes Azure CLI commands to fully automate the following steps of configuring Oracle DataGuard Fast-Start Failover (FSFO), consisting of two "database" hosts and one "observer" host, given a subscription and a resource group...
 
 1. Create a storage account in the specified Azure region
 2. Create a virtual network (vnet) and subnet
@@ -15,7 +15,7 @@ This bash script includes Azure CLI commands to fully automate the following ste
 11. Finish the DataGuard FSFO configuration using the DataGuard DGMGRL utility
 12. Configure the "observer" VM and start the "observer" process
 
-Each of the three VMs have public IP addresses with SSH public-key authentication (PKA) established, so the public IP addresses can be viewed either through the Azure Portal or displayed in the output from the "cr_oradg.sh" script.
+Each of the three VMs have public IP addresses with SSH public-key authentication (PKA) established, so the public IP addresses can be viewed either through the Azure Portal or in the output from the "cr_oradg.sh" script.
 
 ## Sample output from Azure CLI script
 
@@ -23,7 +23,7 @@ Sample output can be found in the file "cr_oradg_output.txt".
 
 ## How to call the Azure CLI script
 
-The script has command-line parameters, all of which have default values.  To display the usage message, enter "./cr_oradg.sh -h"...
+The script has command-line parameters, all of which have default values.  To display the usage message, enter "`./cr_oradg.sh -h`"...
 
 	Usage: $0 -I val -O val -P val -S val -i val -p val -r val -s val -u val -v
 	where:
@@ -47,27 +47,27 @@ For example, if the "${ORACLE_SID}" value is "oradg01", then the DB_NAME of the 
 Therefore, starting from the Azure cloud shell where the "cr_oradg.sh" script was executed, perform the following steps to test switchover...
 
 1. SSH into the "observer" VM using SSH public-key authentication via the administrative OS account
-   - if the admin OS account is "tigorman" and the public IP address is "10.20.30.40", use "ssh tigorman@10.20.30.40"
+   - if the admin OS account is "tigorman" and the public IP address is "10.20.30.40", use "`ssh tigorman@10.20.30.40`"
 2. Then, change from the administrative OS account to the "oracle" OS account
-   - use "sudo su - oracle"
+   - use "`sudo su - oracle`"
 3. Initialize the ORACLE_SID environment variable
-   - use "export ORACLE_SID=<value>". For example, if the value of ORACLE_SID is "oradg01", then use "export ORACLE_SID=oradg01".
+   - use "`export ORACLE_SID={value}`". For example, if the value of ORACLE_SID is "oradg01", then use "`export ORACLE_SID=oradg01`".
 4. Login to the DataGuard Broker DGMGRL utility
-   - use the command "dgmgrl sys/<password>@<tns-string-for-dgmgrl>"
-   - where "<password>" is the password for the SYS database account set by the "cr_oradg.sh" script (default: "oracleA1")
-   - where "<tns-string-for-dgmgrl>" is "<db-name>_dgmgrl"
-      - where "db-name" is "<oracle-sid>" for the primary database and "<oracle-sid>_stdby" for the standby database
-      - if "ORACLE_SID" is "oradg01", use "oradg01_dgmgrl" for the primary and "oradg01_stdby_dgmgrl" for the standby
-   - using the defaults cited above, "dgmgrl sys/oracleA1@oradg01_dgmgrl" will connect the DataGuard broker to the primary
+   - use the command "`dgmgrl sys/{password}@{tns-string-for-dgmgrl}`"
+   - where "{password}" is the password for the SYS database account set by the "cr_oradg.sh" script (default: "oracleA1")
+   - where "{tns-string-for-dgmgrl}" is "{db-name}_dgmgrl"
+      - where "db-name" is ORACLE_SID value for the primary database and "{ORACLE_SID}_stdby" for the standby database
+      - if ORACLE_SID value is "oradg01", then use "oradg01_dgmgrl" for the primary and "oradg01_stdby_dgmgrl" for the standby
+   - using the defaults cited above, "`dgmgrl sys/oracleA1@oradg01_dgmgrl`" will connect the DataGuard broker to the primary
 5. Once connected to the DataGuard Broker DGMGRL utilty, show the DataGuard configuration status
-   - at the "DGMGRL>" prompt, run "show configuration"
+   - at the "`DGMGRL>`" prompt, run "`show configuration`"
 6. Once connected to broker utility, also show the Fast-Start Failover configuration status
-   - at the "DGMGRL>" prompt, run "show fast_start failover"
-7. If both "show configuration" and "show fast_start failover" display no warnings or errors...
+   - at the "`DGMGRL>`" prompt, run "`show fast_start failover`"
+7. If both "`show configuration`" and "`show fast_start failover`" display no warnings or errors...
    - switchover the PRIMARY role from "oradg01" on the first VM to "oradg01_stdby" on the second VM
    - when completed, "oradg01_stdby" will be PRIMARY and "oradg01" will be STANDBY
-8. Switchover can be performed in either direction as desired
-9. Failover can be triggered by performing SHUTDOWN ABORT on the database with the PRIMARY role
-   - the failed former PRIMARY cannot become a STANDBY until it is manually mounted with STARTUP MOUNT
+8. Switchover can be performed in either direction as desired; verify that databases are ready for switchover or failover using the DGMGRL commands "`show configuration`" or "`validate database {db-name};`" 
+9. Failover can be triggered by performing `SHUTDOWN ABORT` on the database with the PRIMARY role
+   - the failed former PRIMARY cannot become a STANDBY until it is manually mounted with `STARTUP MOUNT`
    - after the failed former PRIMARY has been manually mounted, it must be reinstated into the configuration in DGMGRL
-      - use the command "reinstate database <db-name>" to complete reinstatement of the failed database as a standby
+      - use the command "`reinstate database {db-name}`" to complete reinstatement of the failed database as a standby
