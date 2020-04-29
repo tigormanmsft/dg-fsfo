@@ -136,7 +136,7 @@ if (( ${_parseErrs} > 0 )); then
 	echo "	-O owner-tag		name of the owner to use in Azure tags (no default)"
 	echo "	-P project-tag		name of the project to use in Azure tags (no default)"
 	echo "	-S subscription		name of the Azure subscription (no default)"
-	echo "	-d domain-name		IP domain name (default: ${_azureOwner}-${_azureProject}-rg)"
+	echo "	-d domain-name		IP domain name (default: internal.cloudapp.net)"
 	echo "	-i db-instance-type	name of the Azure VM instance type for database nodes (default: Standard_DS11-1_v2)"
 	echo "	-p Oracle-port		port number of the Oracle TNS Listener (default: 1521)"
 	echo "	-r region		name of Azure region (default: westus2)"
