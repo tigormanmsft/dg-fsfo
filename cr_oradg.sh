@@ -7,29 +7,29 @@
 #
 # Copyright and license:
 #
-#       Licensed under the Apache License, Version 2.0 (the "License"); you may
-#       not use this file except in compliance with the License.
+#	Licensed under the Apache License, Version 2.0 (the "License"); you may
+#	not use this file except in compliance with the License.
 #
-#       You may obtain a copy of the License at
+#	You may obtain a copy of the License at
 #
-#               http://www.apache.org/licenses/LICENSE-2.0
+#		http://www.apache.org/licenses/LICENSE-2.0
 #
-#       Unless required by applicable law or agreed to in writing, software
-#       distributed under the License is distributed on an "AS IS" basis,
-#       WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#	Unless required by applicable law or agreed to in writing, software
+#	distributed under the License is distributed on an "AS IS" basis,
+#	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #
-#       See the License for the specific language governing permissions and
-#       limitations under the License.
+#	See the License for the specific language governing permissions and
+#	limitations under the License.
 #
-#       Copyright (c) 2020 by Microsoft.  All rights reserved.
+#	Copyright (c) 2020 by Microsoft.  All rights reserved.
 #
 # Ownership and responsibility:
 #
-#       This script is offered without warranty by Microsoft Customer Engineering.
-#       Anyone using this script accepts full responsibility for use, effect,
-#       and maintenance.  Please do not contact Microsoft support unless there
-#       is a problem with a supported Azure component used in this script,
-#       such as an "az" command.
+#	This script is offered without warranty by Microsoft Customer Engineering.
+#	Anyone using this script accepts full responsibility for use, effect,
+#	and maintenance.  Please do not contact Microsoft support unless there
+#	is a problem with a supported Azure component used in this script,
+#	such as an "az" command.
 #
 # Description:
 #
@@ -43,12 +43,13 @@
 # Usage notes:
 #
 # Modifications:
-#	TGorman	20apr20	written
+#	TGorman	20apr20	v0.1 written
 #================================================================================
 #
 #--------------------------------------------------------------------------------
 # Set global environment variables for the entire script...
 #--------------------------------------------------------------------------------
+_progVersion="v0.2"
 _outputMode="terse"
 _azureOwner="tigorman"
 _azureProject="oradg"
@@ -84,8 +85,8 @@ _oraInvDir="/u01/app/oraInventory"
 _oraOsAcct="oracle"
 _oraOsGroup="oinstall"
 _oraCharSet="WE8ISO8859P15"
-_oraScsiDevice="/dev/sdc"
-_oraScsiPartition="${_oraScsiDevice}1"
+_scsiDev="/dev/sdc"
+_scsiPartition="${_scsiDev}1"
 _oraMntDir="/u02"
 _oraDataDir="${_oraMntDir}/oradata"
 _oraFRADir="${_oraMntDir}/orarecv"
@@ -97,13 +98,15 @@ _oraLsnrPort=1521
 # Accept command-line parameter values to override default values (above)..
 #--------------------------------------------------------------------------------
 typeset -i _parseErrs=0
-while getopts ":I:O:P:S:i:p:r:s:u:vw:" OPTNAME
+while getopts ":G:I:O:P:S:d:i:p:r:s:u:vw:" OPTNAME
 do
 	case "${OPTNAME}" in
+		G)	_rgName="${OPTARG}"		;;
 		I)	_vmObsvrInstanceType="${OPTARG}" ;;
 		O)	_azureOwner="${OPTARG}"		;;
 		P)	_azureProject="${OPTARG}"	;;
 		S)	_azureSubscription="${OPTARG}"	;;
+		d)	_vmDomain="${OPTARG}"		;;
 		i)	_vmDbInstanceType="${OPTARG}"	;;
 		p)	_oraLsnrPort="${OPTARG}"	;;
 		r)	_azureRegion="${OPTARG}"	;;
@@ -126,12 +129,14 @@ shift $((OPTIND-1))
 # a usage message and exit with failure status...
 #--------------------------------------------------------------------------------
 if (( ${_parseErrs} > 0 )); then
-	echo "Usage: $0 -I val -O val -P val -S val -i val -p val -r val -s val -u val -v"
+	echo "Usage: $0 -G val -I val -O val -P val -S val -d val -i val -p val -r val -s val -u val -v"
 	echo "where:"
+	echo "	-G resource=group-name	name of the Azure resource group (default: ${_azureOwner}-${_azureProject}-rg)"
 	echo "	-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_DS1_v2)"
 	echo "	-O owner-tag		name of the owner to use in Azure tags (no default)"
 	echo "	-P project-tag		name of the project to use in Azure tags (no default)"
 	echo "	-S subscription		name of the Azure subscription (no default)"
+	echo "	-d domain-name		IP domain name (default: ${_azureOwner}-${_azureProject}-rg)"
 	echo "	-i db-instance-type	name of the Azure VM instance type for database nodes (default: Standard_DS11-1_v2)"
 	echo "	-p Oracle-port		port number of the Oracle TNS Listener (default: 1521)"
 	echo "	-r region		name of Azure region (default: westus2)"
@@ -145,9 +150,12 @@ fi
 # Display variable values when output is set to "verbose"...
 #--------------------------------------------------------------------------------
 if [[ "${_outputMode}" = "verbose" ]]; then
+	echo "`date` - DBUG: parameter _rgName is \"${_rgName}\""
+	echo "`date` - DBUG: parameter _progVersion is \"${_progVersion}\""
 	echo "`date` - DBUG: parameter _azureOwner is \"${_azureOwner}\""
 	echo "`date` - DBUG: parameter _azureProject is \"${_azureProject}\""
 	echo "`date` - DBUG: parameter _azureSubscription is \"${_azureSubscription}\""
+	echo "`date` - DBUG: parameter _vmDomain is \"${_vmDomain}\""
 	echo "`date` - DBUG: parameter _vmDbInstanceType is \"${_vmDbInstanceType}\""
 	echo "`date` - DBUG: parameter _vmObsvrInstanceType is \"${_vmObsvrInstanceType}\""
 	echo "`date` - DBUG: parameter _oraLsnrPort is \"${_oraLsnrPort}\""
@@ -157,7 +165,6 @@ if [[ "${_outputMode}" = "verbose" ]]; then
 	echo "`date` - DBUG: variable _workDir is \"${_workDir}\""
 	echo "`date` - DBUG: variable _logFile is \"${_logFile}\""
 	echo "`date` - DBUG: variable _saName is \"${_saName}\""
-	echo "`date` - DBUG: variable _rgName is \"${_rgName}\""
 	echo "`date` - DBUG: variable _vnetName is \"${_vnetName}\""
 	echo "`date` - DBUG: variable _subnetName is \"${_subnetName}\""
 	echo "`date` - DBUG: variable _nsgName is \"${_nsgName}\""
@@ -170,15 +177,14 @@ if [[ "${_outputMode}" = "verbose" ]]; then
 	echo "`date` - DBUG: variable _nicName3 is \"${_nicName3}\""
 	echo "`date` - DBUG: variable _pubIpName3 is \"${_pubIpName3}\""
 	echo "`date` - DBUG: variable _vmName3 is \"${_vmName3}\""
-	echo "`date` - DBUG: variable _vmDomain is \"${_vmDomain}\""
 	echo "`date` - DBUG: variable _vmOsDiskSize is \"${_vmOsDiskSize}\""
 	echo "`date` - DBUG: variable _oraHome is \"${_oraHome}\""
 	echo "`date` - DBUG: variable _oraInvDir is \"${_oraInvDir}\""
 	echo "`date` - DBUG: variable _oraOsAcct is \"${_oraOsAcct}\""
 	echo "`date` - DBUG: variable _oraOsGroup is \"${_oraOsGroup}\""
 	echo "`date` - DBUG: variable _oraCharSet is \"${_oraCharSet}\""
-	echo "`date` - DBUG: variable _oraScsiDevice is \"${_oraScsiDevice}\""
-	echo "`date` - DBUG: variable _oraScsiPartition is \"${_oraScsiPartition}\""
+	echo "`date` - DBUG: variable _scsiDev is \"${_scsiDev}\""
+	echo "`date` - DBUG: variable _scsiPartition is \"${_scsiPartition}\""
 	echo "`date` - DBUG: variable _oraMntDir is \"${_oraMntDir}\""
 	echo "`date` - DBUG: variable _oraDataDir is \"${_oraDataDir}\""
 	echo "`date` - DBUG: variable _oraFRADir is \"${_oraFRADir}\""
@@ -189,6 +195,16 @@ fi
 # Remove any existing logfile...
 #--------------------------------------------------------------------------------
 rm -f ${_logFile}
+echo "`date` - INFO: \"$0 $*\" ${_progVersion}, starting..." >> ${_logFile}
+#
+#--------------------------------------------------------------------------------
+# Verify that the resource group exists...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az group exists -n ${_rgName}..." | tee -a ${_logFile}
+if [[ "`az group exists -n ${_rgName}`" != "true" ]]; then
+	echo "`date` - FAIL: resource group \"${_rgName}\" does not exist" | tee -a ${_logFile}
+	exit 1
+fi
 #
 #--------------------------------------------------------------------------------
 # Set the default Azure subscription...
@@ -523,23 +539,23 @@ ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr3} >> ${_logFile} 2>&1
 echo "`date` - INFO: public IP ${_ipAddr3} for ${_vmName3}..." | tee -a ${_logFile}
 #
 #--------------------------------------------------------------------------------
-# SSH into the first VM to create a single partition on the SCSI device
-# representing the attached data disk...
+# SSH into the first VM to create a GPT label on the SCSI device...
 #--------------------------------------------------------------------------------
-echo "`date` - INFO: partition ${_oraScsiDevice} on ${_vmName1}..." | tee -a ${_logFile}
-ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr1} "sudo parted << __EOF__
-select ${_oraScsiDevice}
-mklabel msdos
-mkpart
-primary
-ext4
-1
-68600
-print
-quit
-__EOF__" >> ${_logFile} 2>&1
+echo "`date` - INFO: parted ${_scsiDev} mklabel gpt on ${_vmName1}..." | tee -a ${_logFile}
+ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr1} "sudo parted ${_scsiDev} mklabel gpt" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo parted ${_oraScsiDevice} on ${_vmName1}" | tee -a ${_logFile}
+	echo "`date` - FAIL: sudo parted ${_scsiDev} mklabel gpt on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the first VM to create a single primary partitition consuming the entire
+# SCSI device...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: parted -a opt ${_scsiDev} mkpart primary on ${_vmName1}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr1} "sudo parted -a opt ${_scsiDev} mkpart primary ext4 0% 100%" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo parted mkpart -a opt ${_scsiDev} primary ext4 0% 100% on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
 #
@@ -569,10 +585,10 @@ fi
 # SSH into the first VM to create the Linux EXT4 filesystem on the partitioned
 # data disk...
 #--------------------------------------------------------------------------------
-echo "`date` - INFO: mkfs.ext4 ${_oraScsiPartition} on ${_vmName1}..." | tee -a ${_logFile}
-ssh ${_azureOwner}@${_ipAddr1} "sudo mkfs.ext4 ${_oraScsiPartition}" >> ${_logFile} 2>&1
+echo "`date` - INFO: mkfs.ext4 ${_scsiPartition} on ${_vmName1}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr1} "sudo mkfs.ext4 ${_scsiPartition}" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo mkfs.ext4 ${_oraScsiPartition} on ${_vmName1}" | tee -a ${_logFile}
+	echo "`date` - FAIL: sudo mkfs.ext4 ${_scsiPartition} on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
 #
@@ -581,7 +597,7 @@ fi
 # directory mount-point...
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: mount ${_oraMntDir} on ${_vmName1}..." | tee -a ${_logFile}
-ssh ${_azureOwner}@${_ipAddr1} "sudo mount ${_oraScsiPartition} ${_oraMntDir}" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr1} "sudo mount ${_scsiPartition} ${_oraMntDir}" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: sudo mount ${_oraMntDir} on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
@@ -633,23 +649,23 @@ if (( $? != 0 )); then
 fi
 #
 #--------------------------------------------------------------------------------
-# SSH into the second VM to create a single partition on the SCSI device
-# representing the attached data disk...
+# SSH into the second VM to create a GPT label on the SCSI device...
 #--------------------------------------------------------------------------------
-echo "`date` - INFO: partition ${_oraScsiDevice} on ${_vmName2}..." | tee -a ${_logFile}
-ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr2} "sudo parted << __EOF__
-select ${_oraScsiDevice}
-mklabel msdos
-mkpart
-primary
-ext4
-1
-68600
-print
-quit
-__EOF__" >> ${_logFile} 2>&1
+echo "`date` - INFO: parted ${_scsiDev} mklabel gpt on ${_vmName2}..." | tee -a ${_logFile}
+ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr2} "sudo parted ${_scsiDev} mklabel gpt" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo parted ${_oraScsiDevice} on ${_vmName2}" | tee -a ${_logFile}
+	echo "`date` - FAIL: sudo parted ${_scsiDev} mklabel gpt on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the second VM to create a single primary partitition consuming the entire
+# SCSI device...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: parted -a opt ${_scsiDev} mkpart primary on ${_vmName2}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr2} "sudo parted -a opt ${_scsiDev} mkpart primary ext4 0% 100%" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo parted mkpart -a opt ${_scsiDev} primary ext4 0% 100% on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
 #
@@ -679,10 +695,10 @@ fi
 # SSH into the second VM to create the Linux EXT4 filesystem on the partitioned
 # data disk...
 #--------------------------------------------------------------------------------
-echo "`date` - INFO: mkfs.ext4 ${_oraScsiPartition} on ${_vmName2}..." | tee -a ${_logFile}
-ssh ${_azureOwner}@${_ipAddr2} "sudo mkfs.ext4 ${_oraScsiPartition}" >> ${_logFile} 2>&1
+echo "`date` - INFO: mkfs.ext4 ${_scsiPartition} on ${_vmName2}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr2} "sudo mkfs.ext4 ${_scsiPartition}" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo mkfs.ext4 ${_oraScsiPartition} on ${_vmName2}" | tee -a ${_logFile}
+	echo "`date` - FAIL: sudo mkfs.ext4 ${_scsiPartition} on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
 #
@@ -691,7 +707,7 @@ fi
 # directory mount-point...
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: mount ${_oraMntDir} on ${_vmName2}..." | tee -a ${_logFile}
-ssh ${_azureOwner}@${_ipAddr2} "sudo mount ${_oraScsiPartition} ${_oraMntDir}" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr2} "sudo mount ${_scsiPartition} ${_oraMntDir}" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: sudo mount ${_oraMntDir} on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
