@@ -25,18 +25,20 @@ Sample output can be found in the file "cr_oradg_output.txt".
 
 The script has command-line parameters, all of which have default values.  To display the usage message, enter "`./cr_oradg.sh -h`"...
 
-	Usage: $0 -I val -O val -P val -S val -i val -p val -r val -s val -u val -v
+	Usage: $0 -G val -I val -O val -P val -S val -d val -i val -p val -r val -s val -u val -v
 	where:
+		-G resource=group-name	name of the Azure resource group (default: `{owner}-{project}-rg`)
 		-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_DS1_v2)
-		-O owner-tag		      name of the owner to use in Azure resource tags (no default)
-		-P project-tag	      	name of the project to use in Azure resource tags (no default)
-		-S subscription		   name of the Azure subscription (no default)
-		-i db-instance-type	   name of the Azure VM instance type for database nodes (default: Standard_DS11-1_v2)
-		-p Oracle-port		      port number of the Oracle TNS Listener (default: 1521)
-		-r region		         name of Azure region (default: westus2)
-		-s ORACLE_SID		      Oracle System ID (SID) value (default: oradb01)
-		-u urn			         Azure URN for the VM from the marketplace (default: Oracle:Oracle-Database-Ee:12.2.0.1:12.2.20180725)
-		-v			               set verbose output is true (default: terse)
+		-O owner-tag		name of the owner to use in Azure resource tags (no default)
+		-P project-tag		name of the project to use in Azure resource tags (no default)
+		-S subscription		name of the Azure subscription (no default)
+		-d domain-name		IP domain name (default: internal.cloudapp.net)
+		-i db-instance-type	name of the Azure VM instance type for database nodes (default: Standard_DS11-1_v2)
+		-p Oracle-port		port number of the Oracle TNS Listener (default: 1521)
+		-r region		name of Azure region (default: westus2)
+		-s ORACLE_SID		Oracle System ID (SID) value (default: oradb01)
+		-u urn			Azure URN for the VM from the marketplace (default: Oracle:Oracle-Database-Ee:12.2.0.1:12.2.20180725)
+		-v			set verbose output is true (default: terse)
 
 ## Testing DataGuard switchover and failover
 
