@@ -50,7 +50,7 @@
 #--------------------------------------------------------------------------------
 # Set global environment variables for the entire script...
 #--------------------------------------------------------------------------------
-_progVersion="v0.2"
+_progVersion="v0.3"
 _outputMode="terse"
 _azureOwner="`whoami`"
 _azureProject="oradg"

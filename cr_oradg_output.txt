@@ -1,5 +1,5 @@
 Mon May  4 17:33:22 UTC 2020 - DBUG: parameter _rgName is "tim-oradg-rg"
-Mon May  4 17:33:22 UTC 2020 - DBUG: parameter _progVersion is "v0.2"
+Mon May  4 17:33:22 UTC 2020 - DBUG: parameter _progVersion is "v0.3"
 Mon May  4 17:33:22 UTC 2020 - DBUG: parameter _azureOwner is "tim"
 Mon May  4 17:33:22 UTC 2020 - DBUG: parameter _azureProject is "oradg"
 Mon May  4 17:33:22 UTC 2020 - DBUG: parameter _azureSubscription is "TIGORMAN-CET subscription"
