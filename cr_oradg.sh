@@ -44,6 +44,7 @@
 #
 # Modifications:
 #	TGorman	20apr20	v0.1 written
+#	TGorman	04may20	v0.3 lots of little cleanup changes...
 #================================================================================
 #
 #--------------------------------------------------------------------------------
@@ -51,7 +52,7 @@
 #--------------------------------------------------------------------------------
 _progVersion="v0.2"
 _outputMode="terse"
-_azureOwner="tigorman"
+_azureOwner="`whoami`"
 _azureProject="oradg"
 _azureRegion="westus2"
 _azureSubscription="TIGORMAN-CET subscription"
@@ -68,15 +69,19 @@ _nicName3="${_azureOwner}-${_azureProject}-nic03"
 _pubIpName1="${_azureOwner}-${_azureProject}-public-ip01"
 _pubIpName2="${_azureOwner}-${_azureProject}-public-ip02"
 _pubIpName3="${_azureOwner}-${_azureProject}-public-ip03"
-_vmName1="${_azureOwner}-${_azureProject}-vm01"
-_vmName2="${_azureOwner}-${_azureProject}-vm02"
-_vmName3="${_azureOwner}-${_azureProject}-vm03"
 _vmZone1="1"
 _vmZone2="2"
 _vmZone3="3"
+_vmNbr1="vm0${_vmZone1}"
+_vmNbr2="vm0${_vmZone2}"
+_vmNbr3="vm0${_vmZone3}"
+_vmName1="${_azureOwner}-${_azureProject}-${_vmNbr1}"
+_vmName2="${_azureOwner}-${_azureProject}-${_vmNbr2}"
+_vmName3="${_azureOwner}-${_azureProject}-${_vmNbr3}"
 _vmUrn="Oracle:Oracle-Database-Ee:12.2.0.1:12.2.20180725"
 _vmDomain="internal.cloudapp.net"
 _vmOsDiskSize="32"
+_vmDataDiskSize="64"
 _vmDbInstanceType="Standard_DS11-1_v2"
 _vmObsvrInstanceType="Standard_DS1_v2"
 _oraSid="oradg01"
@@ -129,7 +134,7 @@ shift $((OPTIND-1))
 # a usage message and exit with failure status...
 #--------------------------------------------------------------------------------
 if (( ${_parseErrs} > 0 )); then
-	echo "Usage: $0 -G val -I val -O val -P val -S val -d val -i val -p val -r val -s val -u val -v"
+	echo "Usage: $0 -G val -I val -O val -P val -S val -d val -i val -p val -r val -s val -u val -v -w val"
 	echo "where:"
 	echo "	-G resource=group-name	name of the Azure resource group (default: ${_azureOwner}-${_azureProject}-rg)"
 	echo "	-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_DS1_v2)"
@@ -142,9 +147,29 @@ if (( ${_parseErrs} > 0 )); then
 	echo "	-r region		name of Azure region (default: westus2)"
 	echo "	-s ORACLE_SID		Oracle System ID (SID) value (default: oradb01)"
 	echo "	-u urn			Azure URN for the VM from the marketplace (default: Oracle:Oracle-Database-Ee:12.2.0.1:12.2.20180725)"
+	echo "	-w SYS/SYSTEM pwd	initial password for Oracle database SYS and SYSTEM accounts"
 	echo "	-v			set verbose output is true (default: false)"
 	exit 1
 fi
+#
+#--------------------------------------------------------------------------------
+# Reset some of the script variables in case "owner" or "project" was changed
+# from the default value...
+#--------------------------------------------------------------------------------
+_logFile="${_workDir}/${_azureOwner}-${_azureProject}.log"
+_saName="${_azureOwner}${_azureProject}sa"
+_vnetName="${_azureOwner}-${_azureProject}-vnet"
+_subnetName="${_azureOwner}-${_azureProject}-subnet"
+_nsgName="${_azureOwner}-${_azureProject}-nsg"
+_nicName1="${_azureOwner}-${_azureProject}-nic01"
+_nicName2="${_azureOwner}-${_azureProject}-nic02"
+_nicName3="${_azureOwner}-${_azureProject}-nic03"
+_pubIpName1="${_azureOwner}-${_azureProject}-public-ip01"
+_pubIpName2="${_azureOwner}-${_azureProject}-public-ip02"
+_pubIpName3="${_azureOwner}-${_azureProject}-public-ip03"
+_vmName1="${_azureOwner}-${_azureProject}-${_vmNbr1}"
+_vmName2="${_azureOwner}-${_azureProject}-${_vmNbr2}"
+_vmName3="${_azureOwner}-${_azureProject}-${_vmNbr3}"
 #
 #--------------------------------------------------------------------------------
 # Display variable values when output is set to "verbose"...
@@ -212,7 +237,7 @@ fi
 echo "`date` - INFO: az account set..." | tee -a ${_logFile}
 az account set -s "${_azureSubscription}" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: ${_azureProject} - az account set" | tee -a ${_logFile}
+	echo "`date` - FAIL: az account set" | tee -a ${_logFile}
 	exit 1
 fi
 #
@@ -222,7 +247,7 @@ fi
 echo "`date` - INFO: az configure --defaults group location..." | tee -a ${_logFile}
 az configure --defaults group=${_rgName} location=${_azureRegion} >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: ${_azureProject} - az configure --defaults group location" | tee -a ${_logFile}
+	echo "`date` - FAIL: az configure --defaults group location" | tee -a ${_logFile}
 	exit 1
 fi
 #
@@ -237,7 +262,7 @@ az storage account create \
 	--tags owner=${_azureOwner} project=${_azureProject} \
 	--verbose >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: ${_azureProject} - az storage account create ${_saName}" | tee -a ${_logFile}
+	echo "`date` - FAIL: az storage account create ${_saName}" | tee -a ${_logFile}
 	exit 1
 fi
 #
@@ -253,7 +278,7 @@ az network vnet create \
 	--subnet-prefixes 10.0.0.0/24 \
 	--verbose >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: ${_azureProject} - az network vnet create ${_vnetName}" | tee -a ${_logFile}
+	echo "`date` - FAIL: az network vnet create ${_vnetName}" | tee -a ${_logFile}
 	exit 1
 fi
 #
@@ -357,7 +382,7 @@ az vm disk attach \
 	--name ${_vmName1}-datadisk01 \
 	--vm-name ${_vmName1} \
 	--caching ReadOnly \
-	--size-gb 64 \
+	--size-gb ${_vmDataDiskSize} \
 	--sku Premium_LRS \
 	--verbose >> ${_logFile} 2>&1
 if (( $? != 0 )); then
@@ -431,7 +456,7 @@ az vm disk attach \
 	--name ${_vmName2}-datadisk01 \
 	--vm-name ${_vmName2} \
 	--caching ReadOnly \
-	--size-gb 64 \
+	--size-gb ${_vmDataDiskSize} \
 	--sku Premium_LRS \
 	--verbose >> ${_logFile} 2>&1
 if (( $? != 0 )); then
@@ -634,17 +659,17 @@ fi
 echo "`date` - INFO: copy oraInst.loc file on ${_vmName1}" | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo cp ${_oraInvDir}/oraInst.loc /etc" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo cp ${_azureOwner}@${_ipAddr1}:${_oraInvDir}/oraInst.loc /etc" | tee -a ${_logFile}
+	echo "`date` - FAIL: sudo cp ${_azureOwner}@${_ipAddr1}:${_oraInvDir}/oraInst.loc /etc on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
 ssh ${_azureOwner}@${_ipAddr1} "sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc" | tee -a ${_logFile}
+	echo "`date` - FAIL: sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
 ssh ${_azureOwner}@${_ipAddr1} "sudo chmod 644 /etc/oraInst.loc" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo chmod 644 /etc/oraInst.loc" | tee -a ${_logFile}
+	echo "`date` - FAIL: sudo chmod 644 /etc/oraInst.loc on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
 #
@@ -744,17 +769,17 @@ fi
 echo "`date` - INFO: copy oraInst.loc file on ${_vmName2}" | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr2} "sudo cp ${_oraInvDir}/oraInst.loc /etc" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo cp ${_azureOwner}@${_ipAddr2}:${_oraInvDir}/oraInst.loc /etc" | tee -a ${_logFile}
+	echo "`date` - FAIL: sudo cp ${_azureOwner}@${_ipAddr2}:${_oraInvDir}/oraInst.loc /etc on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
 ssh ${_azureOwner}@${_ipAddr2} "sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc" | tee -a ${_logFile}
+	echo "`date` - FAIL: sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
 ssh ${_azureOwner}@${_ipAddr2} "sudo chmod 644 /etc/oraInst.loc" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo chmod 644 /etc/oraInst.loc" | tee -a ${_logFile}
+	echo "`date` - FAIL: sudo chmod 644 /etc/oraInst.loc on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
 #
@@ -795,14 +820,14 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: set ${_oraSid} in tnsnames.ora on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_vm01=(DESCRIPTION=(SDU=32767)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=${_oraSid}_vm01)(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_${_vmNbr1}=(DESCRIPTION=(SDU=32767)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=${_oraSid}_${_vmNbr1})(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: set ${_oraSid}_vm01 in tnsnames.ora on ${_vmName1}" | tee -a ${_logFile}
+	echo "`date` - FAIL: set ${_oraSid}_${_vmNbr1} in tnsnames.ora on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_vm02=(DESCRIPTION=(SDU=32767)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName2}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=${_oraSid}_vm02)(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_${_vmNbr2}=(DESCRIPTION=(SDU=32767)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName2}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=${_oraSid}_${_vmNbr2})(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: set ${_oraSid}_vm02 in tnsnames.ora on ${_vmName1}" | tee -a ${_logFile}
+	echo "`date` - FAIL: set ${_oraSid}_${_vmNbr2} in tnsnames.ora on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_dgmgrl=(DESCRIPTION=(SDU=32767)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=${_oraSid}_dgmgrl)(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
@@ -826,14 +851,14 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: set ${_oraSid} in tnsnames.ora on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_vm01=(DESCRIPTION=(SDU=32767)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=${_oraSid}_vm01)(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_${_vmNbr1}=(DESCRIPTION=(SDU=32767)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=${_oraSid}_${_vmNbr1})(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: set ${_azureProject}_vm01 in tnsnames.ora on ${_vmName2}" | tee -a ${_logFile}
+	echo "`date` - FAIL: set ${_azureProject}_${_vmNbr1} in tnsnames.ora on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_vm02=(DESCRIPTION=(SDU=32767)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName2}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=${_oraSid}_vm02)(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_${_vmNbr2}=(DESCRIPTION=(SDU=32767)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName2}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=${_oraSid}_${_vmNbr2})(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: set ${_azureProject}_vm02 in tnsnames.ora on ${_vmName2}" | tee -a ${_logFile}
+	echo "`date` - FAIL: set ${_azureProject}_${_vmNbr2} in tnsnames.ora on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
 ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_dgmgrl=(DESCRIPTION=(SDU=32767)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=${_oraSid}_dgmgrl)(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
@@ -937,20 +962,11 @@ fi
 #
 #--------------------------------------------------------------------------------
 # SSH into the first VM to set the database initialization parameter
-# SERVICE_NAMES to contain three values: "${ORACLE_SID}", "${ORACLE_SID}_vm01",
-# and "${ORACLE_SID}_dgmgrl".
+# SERVICE_NAMES to contain three values: "${ORACLE_SID}" and "${ORACLE_SID}_dgmgrl".
 #
-# The first value (i.e. "${ORACLE_SID}" generally represents the normal service
-# for the database, and it stays with the primary database in the configuration,
-# meaning that it should "migrate" along with the primary database role from one
-# VM to the other in the event of failover or switchover.
-#
-# The second value (i.e. "${ORACLE_SID}_vm01" sticks with this VM, regardless of
-# the present role of the database (i.e. primary or standby).
-#
-# The third value (i.e. "${ORACLE_SID}_dgmgrl" also sticks with this VM,
-# regardless of the present role of the database (i.e. primary or standby), and
-# is supposed to be used by the Oracle DataGuard DGMGRL utility only.
+# The first value is the standard service name based on DB_NAME, which the second
+# value intended solely for the use of the DataGuard Broker utility DGMGRL as a
+# static service.
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: set SERVICE_NAMES on ${_vmName1}..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
@@ -958,7 +974,7 @@ export ORACLE_SID=${_oraSid}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
-ALTER SYSTEM SET SERVICE_NAMES='${_oraSid}','${_oraSid}_vm01','${_oraSid}_dgmgrl' SCOPE=BOTH;
+ALTER SYSTEM SET SERVICE_NAMES='${_oraSid}','${_oraSid}_dgmgrl' SCOPE=BOTH;
 exit success
 __EOF__\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
@@ -1292,21 +1308,13 @@ if (( $? != 0 )); then
 fi
 #
 #--------------------------------------------------------------------------------
-# SSH into the first VM to set the database initialization parameter
-# SERVICE_NAMES to contain three values: "${ORACLE_SID}", "${ORACLE_SID}_vm02",
-# and "${ORACLE_SID}_stdby_dgmgrl".
+# SSH into the second VM to set the database initialization parameter
+# SERVICE_NAMES to contain three values: "${ORACLE_SID}" and
+# "${ORACLE_SID}_stdby_dgmgrl".
 #
-# The first value (i.e. "${ORACLE_SID}" generally represents the normal service
-# for the database, and it stays with the primary database in the configuration,
-# meaning that it should "migrate" along with the primary database role from one
-# VM to the other in the event of failover or switchover.
-#
-# The second value (i.e. "${ORACLE_SID}_vm02" sticks with this VM, regardless of
-# the present role of the database (i.e. primary or standby).
-#
-# The third value (i.e. "${ORACLE_SID}_stdby_dgmgrl" also sticks with this VM,
-# regardless of the present role of the database (i.e. primary or standby), and
-# is supposed to be used by the Oracle DataGuard DGMGRL utility only.
+# The first value is the standard service name based on DB_NAME, which the second
+# value intended solely for the use of the DataGuard Broker utility DGMGRL as a
+# static service.
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: set SERVICE_NAMES..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"
@@ -1314,7 +1322,7 @@ export ORACLE_SID=${_oraSid}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
-ALTER SYSTEM SET SERVICE_NAMES='${_oraSid}_stdby','${_oraSid}_vm02','${_oraSid}_stdby_dgmgrl' SCOPE=BOTH;
+ALTER SYSTEM SET SERVICE_NAMES='${_oraSid}_stdby','${_oraSid}_stdby_dgmgrl' SCOPE=BOTH;
 exit success
 __EOF__\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
@@ -1379,14 +1387,14 @@ fi
 # On all three VMs, verify that all of the TNSNAMES entries work correctly...
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: verify TNSNAMES entries on ${_vmName1}..." | tee -a ${_logFile}
-ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_vm01\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_${_vmNbr1}\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: tnsping ${_oraSid}_vm01 on ${_vmName1}" | tee -a ${_logFile}
+	echo "`date` - FAIL: tnsping ${_oraSid}_${_vmNbr1} on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_vm02\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_${_vmNbr2}\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: tnsping ${_oraSid}_vm02 on ${_vmName1}" | tee -a ${_logFile}
+	echo "`date` - FAIL: tnsping ${_oraSid}_${_vmNbr2} on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_dgmgrl\"" >> ${_logFile} 2>&1
@@ -1400,14 +1408,14 @@ if (( $? != 0 )); then
 	exit 1
 fi
 echo "`date` - INFO: verify TNSNAMES entries on ${_vmName2}..." | tee -a ${_logFile}
-ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_vm01\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_${_vmNbr1}\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: tnsping ${_oraSid}_vm01 on ${_vmName2}" | tee -a ${_logFile}
+	echo "`date` - FAIL: tnsping ${_oraSid}_${_vmNbr1} on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_vm02\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_${_vmNbr2}\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: tnsping ${_oraSid}_vm02 on ${_vmName2}" | tee -a ${_logFile}
+	echo "`date` - FAIL: tnsping ${_oraSid}_${_vmNbr2} on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
 ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_dgmgrl\"" >> ${_logFile} 2>&1
