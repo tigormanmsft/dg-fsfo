@@ -46,12 +46,13 @@
 #	TGorman	20apr20	v0.1 written
 #	TGorman	04may20	v0.3 lots of little cleanup changes...
 #	TGorman	08jun20	v0.4 added _vmDataDiskCaching and fixed "_rgName" handling
+#	TGorman	08jun20	v0.5 added _oraHome as parameter
 #================================================================================
 #
 #--------------------------------------------------------------------------------
 # Set global environment variables for the entire script...
 #--------------------------------------------------------------------------------
-_progVersion="v0.4"
+_progVersion="v0.5"
 _outputMode="terse"
 _azureOwner="`whoami`"
 _azureProject="oradg"
@@ -106,15 +107,16 @@ _oraLsnrPort=1521
 # Accept command-line parameter values to override default values (above)..
 #--------------------------------------------------------------------------------
 typeset -i _parseErrs=0
-while getopts ":G:I:O:P:S:c:d:i:p:r:s:u:vw:" OPTNAME
+while getopts ":G:H:I:O:P:S:c:d:i:p:r:s:u:vw:" OPTNAME
 do
 	case "${OPTNAME}" in
 		G)	_newRgName="${OPTARG}"		;;
+		H)	_oraHome="${OPTARG}"		;;
 		I)	_vmObsvrInstanceType="${OPTARG}" ;;
 		O)	_azureOwner="${OPTARG}"		;;
 		P)	_azureProject="${OPTARG}"	;;
 		S)	_azureSubscription="${OPTARG}"	;;
-		d)	_vmDataDiskCaching="${OPTARG}"	;;
+		c)	_vmDataDiskCaching="${OPTARG}"	;;
 		d)	_vmDomain="${OPTARG}"		;;
 		i)	_vmDbInstanceType="${OPTARG}"	;;
 		p)	_oraLsnrPort="${OPTARG}"	;;
@@ -138,9 +140,10 @@ shift $((OPTIND-1))
 # a usage message and exit with failure status...
 #--------------------------------------------------------------------------------
 if (( ${_parseErrs} > 0 )); then
-	echo "Usage: $0 -G val -I val -O val -P val -S val -c val -d val -i val -p val -r val -s val -u val -v -w val"
+	echo "Usage: $0 -G val -H val -I val -O val -P val -S val -c val -d val -i val -p val -r val -s val -u val -v -w val"
 	echo "where:"
 	echo "	-G resource=group-name	name of the Azure resource group (default: ${_azureOwner}-${_azureProject}-rg)"
+	echo "	-H ORACLE_HOME		full pathname of Oracle software (default: /u01/app/oracle/product/12.2.0/dbhome_1)"
 	echo "	-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_DS1_v2)"
 	echo "	-O owner-tag		name of the owner to use in Azure tags (no default)"
 	echo "	-P project-tag		name of the project to use in Azure tags (no default)"
@@ -194,6 +197,7 @@ if [[ "${_outputMode}" = "verbose" ]]; then
 	echo "`date` - DBUG: parameter _vmDataDiskCaching is \"${_vmDataDiskCaching}\""
 	echo "`date` - DBUG: parameter _vmDomain is \"${_vmDomain}\""
 	echo "`date` - DBUG: parameter _vmDbInstanceType is \"${_vmDbInstanceType}\""
+	echo "`date` - DBUG: parameter _oraHome is \"${_oraHome}\""
 	echo "`date` - DBUG: parameter _vmObsvrInstanceType is \"${_vmObsvrInstanceType}\""
 	echo "`date` - DBUG: parameter _oraLsnrPort is \"${_oraLsnrPort}\""
 	echo "`date` - DBUG: parameter _azureRegion is \"${_azureRegion}\""
@@ -215,7 +219,6 @@ if [[ "${_outputMode}" = "verbose" ]]; then
 	echo "`date` - DBUG: variable _pubIpName3 is \"${_pubIpName3}\""
 	echo "`date` - DBUG: variable _vmName3 is \"${_vmName3}\""
 	echo "`date` - DBUG: variable _vmOsDiskSize is \"${_vmOsDiskSize}\""
-	echo "`date` - DBUG: variable _oraHome is \"${_oraHome}\""
 	echo "`date` - DBUG: variable _oraInvDir is \"${_oraInvDir}\""
 	echo "`date` - DBUG: variable _oraOsAcct is \"${_oraOsAcct}\""
 	echo "`date` - DBUG: variable _oraOsGroup is \"${_oraOsGroup}\""
@@ -801,6 +804,8 @@ fi
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: sudo su - ${_oraOsAcct} dbca -createDatabase ${_oraSid} on ${_vmName1}..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"\
+	export ORACLE_HOME=${_oraHome} \
+	export PATH=${_oraHome}/bin:\${PATH} \
 	dbca -silent -createDatabase \
 		-gdbName ${_oraSid} \
 		-templateName ${_oraHome}/assistants/dbca/templates/General_Purpose.dbc \
@@ -914,6 +919,8 @@ fi
 echo "`date` - INFO: create services and startDgServices trigger..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -942,6 +949,8 @@ fi
 echo "`date` - INFO: set FORCE LOGGING..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -961,6 +970,8 @@ fi
 echo "`date` - INFO: set LOG_ARCHIVE_DEST_1..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -983,6 +994,8 @@ fi
 echo "`date` - INFO: set SERVICE_NAMES on ${_vmName1}..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1019,6 +1032,8 @@ fi
 echo "`date` - INFO: set STANDBY_FILE_MANAGEMENT..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1038,6 +1053,8 @@ fi
 echo "`date` - INFO: set LOG_ARCHIVE_CONFIG..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1056,6 +1073,8 @@ fi
 echo "`date` - INFO: set DB_FLASHBACK_RETENTION_TARGET..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1074,6 +1093,8 @@ fi
 echo "`date` - INFO: set DG_BROKER_CONFIG_FILE1..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1092,6 +1113,8 @@ fi
 echo "`date` - INFO: set DG_BROKER_CONFIG_FILE2..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1110,6 +1133,8 @@ fi
 echo "`date` - INFO: set DG_BROKER_START..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1128,6 +1153,8 @@ fi
 echo "`date` - INFO: create STANDBY LOGFILE GROUPS..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1150,6 +1177,8 @@ fi
 echo "`date` - INFO: SHUTDOWN then STARTUP MOUNT..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1170,6 +1199,8 @@ fi
 echo "`date` - INFO: set MAXIMUM AVAILABILITY on ${_vmName1}..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1187,6 +1218,8 @@ fi
 echo "`date` - INFO: enable FLASHBACK DATABASE on ${_vmName1}..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1272,6 +1305,8 @@ fi
 echo "`date` - INFO: STARTUP FORCE..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1290,6 +1325,8 @@ fi
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: sudo su - ${_oraOsAcct} dbca -createDuplicateDB ${_oraSid} on ${_vmName2}..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"\
+	export ORACLE_HOME=${_oraHome} \
+	export PATH=${_oraHome}/bin:\${PATH} \
 	dbca -silent -createDuplicateDB \
 		-gdbName ${_oraSid} \
 		-sysPassword ${_oraSysPwd} \
@@ -1331,6 +1368,8 @@ fi
 echo "`date` - INFO: set SERVICE_NAMES..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1350,6 +1389,8 @@ fi
 echo "`date` - INFO: set LOG_ARCHIVE_CONFIG on ${_vmName2}..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1367,6 +1408,8 @@ fi
 echo "`date` - INFO: set MAXIMUM AVAILABILITY on ${_vmName2}..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
@@ -1384,6 +1427,8 @@ fi
 echo "`date` - INFO: enable FLASHBACK DATABASE on ${_vmName2}..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"
 export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
 sqlplus -S / as sysdba << __EOF__
 whenever oserror exit failure
 whenever sqlerror exit failure
