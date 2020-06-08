@@ -45,12 +45,13 @@
 # Modifications:
 #	TGorman	20apr20	v0.1 written
 #	TGorman	04may20	v0.3 lots of little cleanup changes...
+#	TGorman	08jun20	v0.4 added _vmDataDiskCaching and fixed "_rgName" handling
 #================================================================================
 #
 #--------------------------------------------------------------------------------
 # Set global environment variables for the entire script...
 #--------------------------------------------------------------------------------
-_progVersion="v0.3"
+_progVersion="v0.4"
 _outputMode="terse"
 _azureOwner="`whoami`"
 _azureProject="oradg"
@@ -60,6 +61,7 @@ _workDir="`pwd`"
 _logFile="${_workDir}/${_azureOwner}-${_azureProject}.log"
 _saName="${_azureOwner}${_azureProject}sa"
 _rgName="${_azureOwner}-${_azureProject}-rg"
+_newRgName="~"
 _vnetName="${_azureOwner}-${_azureProject}-vnet"
 _subnetName="${_azureOwner}-${_azureProject}-subnet"
 _nsgName="${_azureOwner}-${_azureProject}-nsg"
@@ -82,6 +84,7 @@ _vmUrn="Oracle:Oracle-Database-Ee:12.2.0.1:12.2.20180725"
 _vmDomain="internal.cloudapp.net"
 _vmOsDiskSize="32"
 _vmDataDiskSize="64"
+_vmDataDiskCaching="ReadOnly"
 _vmDbInstanceType="Standard_DS11-1_v2"
 _vmObsvrInstanceType="Standard_DS1_v2"
 _oraSid="oradg01"
@@ -103,14 +106,15 @@ _oraLsnrPort=1521
 # Accept command-line parameter values to override default values (above)..
 #--------------------------------------------------------------------------------
 typeset -i _parseErrs=0
-while getopts ":G:I:O:P:S:d:i:p:r:s:u:vw:" OPTNAME
+while getopts ":G:I:O:P:S:c:d:i:p:r:s:u:vw:" OPTNAME
 do
 	case "${OPTNAME}" in
-		G)	_rgName="${OPTARG}"		;;
+		G)	_newRgName="${OPTARG}"		;;
 		I)	_vmObsvrInstanceType="${OPTARG}" ;;
 		O)	_azureOwner="${OPTARG}"		;;
 		P)	_azureProject="${OPTARG}"	;;
 		S)	_azureSubscription="${OPTARG}"	;;
+		d)	_vmDataDiskCaching="${OPTARG}"	;;
 		d)	_vmDomain="${OPTARG}"		;;
 		i)	_vmDbInstanceType="${OPTARG}"	;;
 		p)	_oraLsnrPort="${OPTARG}"	;;
@@ -134,13 +138,14 @@ shift $((OPTIND-1))
 # a usage message and exit with failure status...
 #--------------------------------------------------------------------------------
 if (( ${_parseErrs} > 0 )); then
-	echo "Usage: $0 -G val -I val -O val -P val -S val -d val -i val -p val -r val -s val -u val -v -w val"
+	echo "Usage: $0 -G val -I val -O val -P val -S val -c val -d val -i val -p val -r val -s val -u val -v -w val"
 	echo "where:"
 	echo "	-G resource=group-name	name of the Azure resource group (default: ${_azureOwner}-${_azureProject}-rg)"
 	echo "	-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_DS1_v2)"
 	echo "	-O owner-tag		name of the owner to use in Azure tags (no default)"
 	echo "	-P project-tag		name of the project to use in Azure tags (no default)"
 	echo "	-S subscription		name of the Azure subscription (no default)"
+	echo "	-c ReadOnly | None	Azure managed disk caching: None (off) or ReadOnly (default)"
 	echo "	-d domain-name		IP domain name (default: internal.cloudapp.net)"
 	echo "	-i db-instance-type	name of the Azure VM instance type for database nodes (default: Standard_DS11-1_v2)"
 	echo "	-p Oracle-port		port number of the Oracle TNS Listener (default: 1521)"
@@ -157,6 +162,12 @@ fi
 # from the default value...
 #--------------------------------------------------------------------------------
 _logFile="${_workDir}/${_azureOwner}-${_azureProject}.log"
+if [[ "${_newRgName}" = "~" ]]
+then
+	_rgName="${_azureOwner}-${_azureProject}-rg"
+else
+	_rgName="${_newRgName}"
+fi
 _saName="${_azureOwner}${_azureProject}sa"
 _vnetName="${_azureOwner}-${_azureProject}-vnet"
 _subnetName="${_azureOwner}-${_azureProject}-subnet"
@@ -180,6 +191,7 @@ if [[ "${_outputMode}" = "verbose" ]]; then
 	echo "`date` - DBUG: parameter _azureOwner is \"${_azureOwner}\""
 	echo "`date` - DBUG: parameter _azureProject is \"${_azureProject}\""
 	echo "`date` - DBUG: parameter _azureSubscription is \"${_azureSubscription}\""
+	echo "`date` - DBUG: parameter _vmDataDiskCaching is \"${_vmDataDiskCaching}\""
 	echo "`date` - DBUG: parameter _vmDomain is \"${_vmDomain}\""
 	echo "`date` - DBUG: parameter _vmDbInstanceType is \"${_vmDbInstanceType}\""
 	echo "`date` - DBUG: parameter _vmObsvrInstanceType is \"${_vmObsvrInstanceType}\""
@@ -381,12 +393,12 @@ az vm disk attach \
 	--new \
 	--name ${_vmName1}-datadisk01 \
 	--vm-name ${_vmName1} \
-	--caching ReadOnly \
+	--caching ${_vmDataDiskCaching} \
 	--size-gb ${_vmDataDiskSize} \
 	--sku Premium_LRS \
 	--verbose >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: az vm disk create ${_vmName1}" | tee -a ${_logFile}
+	echo "`date` - FAIL: az vm disk attach ${_vmName1}-datadisk01" | tee -a ${_logFile}
 	exit 1
 fi
 #
@@ -455,12 +467,12 @@ az vm disk attach \
 	--new \
 	--name ${_vmName2}-datadisk01 \
 	--vm-name ${_vmName2} \
-	--caching ReadOnly \
+	--caching ${_vmDataDiskCaching} \
 	--size-gb ${_vmDataDiskSize} \
 	--sku Premium_LRS \
 	--verbose >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: az vm disk create ${_vmName2}" | tee -a ${_logFile}
+	echo "`date` - FAIL: az vm disk attach ${_vmName2}-datadisk01" | tee -a ${_logFile}
 	exit 1
 fi
 #
