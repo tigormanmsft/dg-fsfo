@@ -919,7 +919,7 @@ fi
 # Configure a "tnsnames.ora" configuration file on the 3rd "observer" VM for use
 # by the Oracle DataGuard DGMGRL utility...
 #--------------------------------------------------------------------------------
-echo "`date` - INFO: configure TNSNAMES.ORA on ${_vmName3}..." | tee -a ${_logFile}
+echo "`date` - INFO: configure TNSNAMES on ${_vmName3}..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr3} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}=(DESCRIPTION=(FAILOVER=ON)(LOAD_BALANCE=OFF)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort}))(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName2}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=PRIMARY)(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: set ${_oraSid} in tnsnames.ora on ${_vmName3}" | tee -a ${_logFile}
@@ -1504,54 +1504,104 @@ fi
 # On all three VMs, verify that all of the TNSNAMES entries work correctly...
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: verify TNSNAMES entries on ${_vmName1}..." | tee -a ${_logFile}
-ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_${_vmNbr1}\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+tnsping ${_oraSid}_${_vmNbr1}\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: tnsping ${_oraSid}_${_vmNbr1} on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_${_vmNbr2}\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+tnsping ${_oraSid}_${_vmNbr2}\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: tnsping ${_oraSid}_${_vmNbr2} on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_dgmgrl\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+tnsping ${_oraSid}_dgmgrl\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: tnsping ${_oraSid}_dgmgrl on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_stdby_dgmgrl\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+tnsping ${_oraSid}_stdby_dgmgrl\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: tnsping ${_oraSid}_stdby_dgmgrl on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
 echo "`date` - INFO: verify TNSNAMES entries on ${_vmName2}..." | tee -a ${_logFile}
-ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_${_vmNbr1}\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+tnsping ${_oraSid}_${_vmNbr1}\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: tnsping ${_oraSid}_${_vmNbr1} on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_${_vmNbr2}\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+tnsping ${_oraSid}_${_vmNbr2}\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: tnsping ${_oraSid}_${_vmNbr2} on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_dgmgrl\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+tnsping ${_oraSid}_dgmgrl\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: tnsping ${_oraSid}_dgmgrl on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_stdby_dgmgrl\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+tnsping ${_oraSid}_stdby_dgmgrl\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: tnsping ${_oraSid}_stdby_dgmgrl on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
 echo "`date` - INFO: verify TNSNAMES entries on ${_vmName3}..." | tee -a ${_logFile}
-ssh ${_azureOwner}@${_ipAddr3} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_dgmgrl\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr3} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+tnsping ${_oraSid}_dgmgrl\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: tnsping ${_oraSid}_dgmgrl on ${_vmName3}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr3} "sudo su - ${_oraOsAcct} -c \"tnsping ${_oraSid}_stdby_dgmgrl\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr3} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+tnsping ${_oraSid}_stdby_dgmgrl\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: tnsping ${_oraSid}_stdby_dgmgrl on ${_vmName3}" | tee -a ${_logFile}
 	exit 1
