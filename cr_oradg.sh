@@ -49,17 +49,18 @@
 #	TGorman	08jun20	v0.5 added _oraHome as parameter, set ORACLE_HOME,
 #			     PATH, and TNS_ADMIN explicitly during all "su - oracle"
 #			     sessions
+#	TGorman	08jun20	v0.6 turn off Linux firewall on VMs
 #================================================================================
 #
 #--------------------------------------------------------------------------------
 # Set global environment variables for the entire script...
 #--------------------------------------------------------------------------------
-_progVersion="v0.5"
+_progVersion="v0.6"
 _outputMode="terse"
 _azureOwner="`whoami`"
 _azureProject="oradg"
 _azureRegion="westus2"
-_azureSubscription="TIGORMAN-CET subscription"
+_azureSubscription=""
 _workDir="`pwd`"
 _logFile="${_workDir}/${_azureOwner}-${_azureProject}.log"
 _saName="${_azureOwner}${_azureProject}sa"
@@ -147,8 +148,8 @@ if (( ${_parseErrs} > 0 )); then
 	echo "	-G resource=group-name	name of the Azure resource group (default: ${_azureOwner}-${_azureProject}-rg)"
 	echo "	-H ORACLE_HOME		full pathname of Oracle software (default: /u01/app/oracle/product/12.2.0/dbhome_1)"
 	echo "	-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_DS1_v2)"
-	echo "	-O owner-tag		name of the owner to use in Azure tags (no default)"
-	echo "	-P project-tag		name of the project to use in Azure tags (no default)"
+	echo "	-O owner-tag		name of the owner to use in Azure tags (default: \$USERNAME)"
+	echo "	-P project-tag		name of the project to use in Azure tags (default: oradg)"
 	echo "	-S subscription		name of the Azure subscription (no default)"
 	echo "	-c ReadOnly | None	Azure managed disk caching: None (off) or ReadOnly (default)"
 	echo "	-d domain-name		IP domain name (default: internal.cloudapp.net)"
@@ -157,7 +158,7 @@ if (( ${_parseErrs} > 0 )); then
 	echo "	-r region		name of Azure region (default: westus2)"
 	echo "	-s ORACLE_SID		Oracle System ID (SID) value (default: oradb01)"
 	echo "	-u urn			Azure URN for the VM from the marketplace (default: Oracle:Oracle-Database-Ee:12.2.0.1:12.2.20180725)"
-	echo "	-w SYS/SYSTEM pwd	initial password for Oracle database SYS and SYSTEM accounts"
+	echo "	-w SYS/SYSTEM pwd	initial password for Oracle database SYS and SYSTEM accounts (default: oracleA1)"
 	echo "	-v			set verbose output is true (default: false)"
 	exit 1
 fi
@@ -267,276 +268,276 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: az configure --defaults group location" | tee -a ${_logFile}
 	exit 1
 fi
-####
-####--------------------------------------------------------------------------------
-#### Create an Azure storage account for this project...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az storage account create ${_saName}..." | tee -a ${_logFile}
-###az storage account create \
-###	--name ${_saName} \
-###	--sku Standard_LRS \
-###	--access-tier Hot \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az storage account create ${_saName}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create an Azure virtual network for this project...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az network vnet create ${_vnetName}..." | tee -a ${_logFile}
-###az network vnet create \
-###	--name ${_vnetName} \
-###	--address-prefixes 10.0.0.0/16 \
-###	--subnet-name ${_subnetName} \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--subnet-prefixes 10.0.0.0/24 \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az network vnet create ${_vnetName}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create an Azure network security group for this project...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az network nsg create ${_nsgName}..." | tee -a ${_logFile}
-###az network nsg create \
-###	--name ${_nsgName} \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az network nsg create ${_nsgName}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create a custom Azure network security group rule to permit SSH access...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az network nsg rule create default-all-ssh..." | tee -a ${_logFile}
-###az network nsg rule create \
-###	--name default-all-ssh \
-###	--nsg-name ${_nsgName} \
-###	--priority 1000 \
-###	--direction Inbound \
-###	--protocol TCP \
-###	--source-address-prefixes \* \
-###	--source-port-ranges \* \
-###	--destination-address-prefixes \* \
-###	--destination-port-ranges 22 \
-###	--access Allow \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az network nsg rule create default-all-ssh" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create an Azure public IP address object for use with the first VM...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az network public-ip create ${_pubIpName1}..." | tee -a ${_logFile}
-###az network public-ip create \
-###	--name ${_pubIpName1} \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--allocation-method Static \
-###	--sku Basic \
-###	--version IPv4 \
-###	--zone ${_vmZone1} \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az network public-ip create ${_pubIpName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create an Azure network interface (NIC) object for use with the first VM...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az network nic create ${_nicName1}..." | tee -a ${_logFile}
-###az network nic create \
-###	--name ${_nicName1} \
-###	--vnet-name ${_vnetName} \
-###	--subnet ${_subnetName} \
-###	--network-security-group ${_nsgName} \
-###	--public-ip-address ${_pubIpName1} \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az network nic create ${_nicName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create the first Azure virtual machine (VM), intended to be used as the primary
-#### Oracle database server/host...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az vm create ${_vmName1}..." | tee -a ${_logFile}
-###az vm create \
-###	--name ${_vmName1} \
-###	--image ${_vmUrn}:latest \
-###	--admin-username ${_azureOwner} \
-###	--size ${_vmDbInstanceType} \
-###	--zone ${_vmZone1} \
-###	--nics ${_nicName1} \
-###	--os-disk-name ${_vmName1}-osdisk \
-###	--os-disk-size-gb ${_vmOsDiskSize} \
-###	--os-disk-caching ReadWrite \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--generate-ssh-keys \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az vm create ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create and attach a data disk to the VM...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az vm disk attach..." | tee -a ${_logFile}
-###az vm disk attach \
-###	--new \
-###	--name ${_vmName1}-datadisk01 \
-###	--vm-name ${_vmName1} \
-###	--caching ${_vmDataDiskCaching} \
-###	--size-gb ${_vmDataDiskSize} \
-###	--sku Premium_LRS \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az vm disk attach ${_vmName1}-datadisk01" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create an Azure public IP address object for use with the second VM...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az network public-ip create ${_pubIpName2}..." | tee -a ${_logFile}
-###az network public-ip create \
-###	--name ${_pubIpName2} \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--allocation-method Static \
-###	--sku Basic \
-###	--version IPv4 \
-###	--zone ${_vmZone2} \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az network public-ip create ${_pubIpName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create an Azure network interface (NIC) object for use with the second VM...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az network nic create ${_nicName2}..." | tee -a ${_logFile}
-###az network nic create \
-###	--name ${_nicName2} \
-###	--vnet-name ${_vnetName} \
-###	--subnet ${_subnetName} \
-###	--network-security-group ${_nsgName} \
-###	--public-ip-address ${_pubIpName2} \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az network nic create ${_nicName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create the second Azure virtual machine (VM), intended to be used as the standby
-#### Oracle database server/host...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az vm create ${_vmName2}..." | tee -a ${_logFile}
-###az vm create \
-###	--name ${_vmName2} \
-###	--image ${_vmUrn}:latest \
-###	--admin-username ${_azureOwner} \
-###	--size ${_vmDbInstanceType} \
-###	--zone ${_vmZone2} \
-###	--nics ${_nicName2} \
-###	--os-disk-name ${_vmName2}-osdisk \
-###	--os-disk-size-gb ${_vmOsDiskSize} \
-###	--os-disk-caching ReadWrite \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--generate-ssh-keys \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az vm create ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create and attach a data disk to the VM...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az vm disk attach..." | tee -a ${_logFile}
-###az vm disk attach \
-###	--new \
-###	--name ${_vmName2}-datadisk01 \
-###	--vm-name ${_vmName2} \
-###	--caching ${_vmDataDiskCaching} \
-###	--size-gb ${_vmDataDiskSize} \
-###	--sku Premium_LRS \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az vm disk attach ${_vmName2}-datadisk01" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create an Azure public IP address object for use with the third VM...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az network public-ip create ${_pubIpName3}..." | tee -a ${_logFile}
-###az network public-ip create \
-###	--name ${_pubIpName3} \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--allocation-method Static \
-###	--sku Basic \
-###	--version IPv4 \
-###	--zone ${_vmZone3} \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az network public-ip create ${_pubIpName3}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create an Azure network interface (NIC) object for use with the third VM...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az network nic create ${_nicName3}..." | tee -a ${_logFile}
-###az network nic create \
-###	--name ${_nicName3} \
-###	--vnet-name ${_vnetName} \
-###	--subnet ${_subnetName} \
-###	--network-security-group ${_nsgName} \
-###	--public-ip-address ${_pubIpName3} \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az network nic create ${_nicName3}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### Create the third Azure virtual machine (VM), intended to be used as the Oracle
-#### DataGuard FSFO observer node...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: az vm create ${_vmName3}..." | tee -a ${_logFile}
-###az vm create \
-###	--name ${_vmName3} \
-###	--image ${_vmUrn}:latest \
-###	--admin-username ${_azureOwner} \
-###	--size ${_vmObsvrInstanceType} \
-###	--zone ${_vmZone3} \
-###	--nics ${_nicName3} \
-###	--os-disk-name ${_vmName3}-osdisk \
-###	--os-disk-size-gb ${_vmOsDiskSize} \
-###	--os-disk-caching ReadWrite \
-###	--tags owner=${_azureOwner} project=${_azureProject} \
-###	--generate-ssh-keys \
-###	--verbose >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: az vm create ${_vmName3}" | tee -a ${_logFile}
-###	exit 1
-###fi
+#
+#--------------------------------------------------------------------------------
+# Create an Azure storage account for this project...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az storage account create ${_saName}..." | tee -a ${_logFile}
+az storage account create \
+	--name ${_saName} \
+	--sku Standard_LRS \
+	--access-tier Hot \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az storage account create ${_saName}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create an Azure virtual network for this project...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az network vnet create ${_vnetName}..." | tee -a ${_logFile}
+az network vnet create \
+	--name ${_vnetName} \
+	--address-prefixes 10.0.0.0/16 \
+	--subnet-name ${_subnetName} \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--subnet-prefixes 10.0.0.0/24 \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az network vnet create ${_vnetName}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create an Azure network security group for this project...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az network nsg create ${_nsgName}..." | tee -a ${_logFile}
+az network nsg create \
+	--name ${_nsgName} \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az network nsg create ${_nsgName}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create a custom Azure network security group rule to permit SSH access...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az network nsg rule create default-all-ssh..." | tee -a ${_logFile}
+az network nsg rule create \
+	--name default-all-ssh \
+	--nsg-name ${_nsgName} \
+	--priority 1000 \
+	--direction Inbound \
+	--protocol TCP \
+	--source-address-prefixes \* \
+	--source-port-ranges \* \
+	--destination-address-prefixes \* \
+	--destination-port-ranges 22 \
+	--access Allow \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az network nsg rule create default-all-ssh" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create an Azure public IP address object for use with the first VM...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az network public-ip create ${_pubIpName1}..." | tee -a ${_logFile}
+az network public-ip create \
+	--name ${_pubIpName1} \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--allocation-method Static \
+	--sku Basic \
+	--version IPv4 \
+	--zone ${_vmZone1} \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az network public-ip create ${_pubIpName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create an Azure network interface (NIC) object for use with the first VM...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az network nic create ${_nicName1}..." | tee -a ${_logFile}
+az network nic create \
+	--name ${_nicName1} \
+	--vnet-name ${_vnetName} \
+	--subnet ${_subnetName} \
+	--network-security-group ${_nsgName} \
+	--public-ip-address ${_pubIpName1} \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az network nic create ${_nicName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create the first Azure virtual machine (VM), intended to be used as the primary
+# Oracle database server/host...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az vm create ${_vmName1}..." | tee -a ${_logFile}
+az vm create \
+	--name ${_vmName1} \
+	--image ${_vmUrn}:latest \
+	--admin-username ${_azureOwner} \
+	--size ${_vmDbInstanceType} \
+	--zone ${_vmZone1} \
+	--nics ${_nicName1} \
+	--os-disk-name ${_vmName1}-osdisk \
+	--os-disk-size-gb ${_vmOsDiskSize} \
+	--os-disk-caching ReadWrite \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--generate-ssh-keys \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az vm create ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create and attach a data disk to the VM...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az vm disk attach..." | tee -a ${_logFile}
+az vm disk attach \
+	--new \
+	--name ${_vmName1}-datadisk01 \
+	--vm-name ${_vmName1} \
+	--caching ${_vmDataDiskCaching} \
+	--size-gb ${_vmDataDiskSize} \
+	--sku Premium_LRS \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az vm disk attach ${_vmName1}-datadisk01" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create an Azure public IP address object for use with the second VM...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az network public-ip create ${_pubIpName2}..." | tee -a ${_logFile}
+az network public-ip create \
+	--name ${_pubIpName2} \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--allocation-method Static \
+	--sku Basic \
+	--version IPv4 \
+	--zone ${_vmZone2} \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az network public-ip create ${_pubIpName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create an Azure network interface (NIC) object for use with the second VM...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az network nic create ${_nicName2}..." | tee -a ${_logFile}
+az network nic create \
+	--name ${_nicName2} \
+	--vnet-name ${_vnetName} \
+	--subnet ${_subnetName} \
+	--network-security-group ${_nsgName} \
+	--public-ip-address ${_pubIpName2} \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az network nic create ${_nicName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create the second Azure virtual machine (VM), intended to be used as the standby
+# Oracle database server/host...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az vm create ${_vmName2}..." | tee -a ${_logFile}
+az vm create \
+	--name ${_vmName2} \
+	--image ${_vmUrn}:latest \
+	--admin-username ${_azureOwner} \
+	--size ${_vmDbInstanceType} \
+	--zone ${_vmZone2} \
+	--nics ${_nicName2} \
+	--os-disk-name ${_vmName2}-osdisk \
+	--os-disk-size-gb ${_vmOsDiskSize} \
+	--os-disk-caching ReadWrite \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--generate-ssh-keys \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az vm create ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create and attach a data disk to the VM...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az vm disk attach..." | tee -a ${_logFile}
+az vm disk attach \
+	--new \
+	--name ${_vmName2}-datadisk01 \
+	--vm-name ${_vmName2} \
+	--caching ${_vmDataDiskCaching} \
+	--size-gb ${_vmDataDiskSize} \
+	--sku Premium_LRS \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az vm disk attach ${_vmName2}-datadisk01" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create an Azure public IP address object for use with the third VM...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az network public-ip create ${_pubIpName3}..." | tee -a ${_logFile}
+az network public-ip create \
+	--name ${_pubIpName3} \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--allocation-method Static \
+	--sku Basic \
+	--version IPv4 \
+	--zone ${_vmZone3} \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az network public-ip create ${_pubIpName3}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create an Azure network interface (NIC) object for use with the third VM...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az network nic create ${_nicName3}..." | tee -a ${_logFile}
+az network nic create \
+	--name ${_nicName3} \
+	--vnet-name ${_vnetName} \
+	--subnet ${_subnetName} \
+	--network-security-group ${_nsgName} \
+	--public-ip-address ${_pubIpName3} \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az network nic create ${_nicName3}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# Create the third Azure virtual machine (VM), intended to be used as the Oracle
+# DataGuard FSFO observer node...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: az vm create ${_vmName3}..." | tee -a ${_logFile}
+az vm create \
+	--name ${_vmName3} \
+	--image ${_vmUrn}:latest \
+	--admin-username ${_azureOwner} \
+	--size ${_vmObsvrInstanceType} \
+	--zone ${_vmZone3} \
+	--nics ${_nicName3} \
+	--os-disk-name ${_vmName3}-osdisk \
+	--os-disk-size-gb ${_vmOsDiskSize} \
+	--os-disk-caching ReadWrite \
+	--tags owner=${_azureOwner} project=${_azureProject} \
+	--generate-ssh-keys \
+	--verbose >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: az vm create ${_vmName3}" | tee -a ${_logFile}
+	exit 1
+fi
 #
 #--------------------------------------------------------------------------------
 # Obtain the public IP addresses for future use within the script...
@@ -551,7 +552,7 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: az network public-ip show ${_pubIpName1}" | tee -a ${_logFile}
 	exit 1
 fi
-###ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr1} >> ${_logFile} 2>&1
+ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr1} >> ${_logFile} 2>&1
 echo "`date` - INFO: public IP ${_ipAddr1} for ${_vmName1}..." | tee -a ${_logFile}
 #
 echo "`date` - INFO: az network public-ip show ${_pubIpName2}..." | tee -a ${_logFile}
@@ -564,7 +565,7 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: az network public-ip show ${_pubIpName2}" | tee -a ${_logFile}
 	exit 1
 fi
-###ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr2} >> ${_logFile} 2>&1
+ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr2} >> ${_logFile} 2>&1
 echo "`date` - INFO: public IP ${_ipAddr2} for ${_vmName2}..." | tee -a ${_logFile}
 #
 echo "`date` - INFO: az network public-ip show ${_pubIpName3}..." | tee -a ${_logFile}
@@ -577,228 +578,250 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: az network public-ip show ${_pubIpName3}" | tee -a ${_logFile}
 	exit 1
 fi
-###ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr3} >> ${_logFile} 2>&1
+ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr3} >> ${_logFile} 2>&1
 echo "`date` - INFO: public IP ${_ipAddr3} for ${_vmName3}..." | tee -a ${_logFile}
-####
-####--------------------------------------------------------------------------------
-#### SSH into the first VM to create a GPT label on the SCSI device...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: parted ${_scsiDev} mklabel gpt on ${_vmName1}..." | tee -a ${_logFile}
-###ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr1} "sudo parted ${_scsiDev} mklabel gpt" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo parted ${_scsiDev} mklabel gpt on ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the first VM to create a single primary partitition consuming the entire
-#### SCSI device...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: parted -a opt ${_scsiDev} mkpart primary on ${_vmName1}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr1} "sudo parted -a opt ${_scsiDev} mkpart primary ext4 0% 100%" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo parted mkpart -a opt ${_scsiDev} primary ext4 0% 100% on ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the first VM to create a directory mount-point for the soon-to-be-created
-#### filesystem in which Oracle database files will reside...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: mkdir ${_oraMntDir} on ${_vmName1}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr1} "sudo mkdir ${_oraMntDir}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo mkdir ${_oraMntDir} on ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the first VM to set the OS account:group ownership of the directory
-#### mount-point...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: chown ${_oraMntDir} on ${_vmName1}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr1} "sudo chown ${_oraOsAcct}:${_oraOsGroup} ${_oraMntDir}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo chown ${_oraMntDir} on ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the first VM to create the Linux EXT4 filesystem on the partitioned
-#### data disk...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: mkfs.ext4 ${_scsiPartition} on ${_vmName1}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr1} "sudo mkfs.ext4 ${_scsiPartition}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo mkfs.ext4 ${_scsiPartition} on ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the first VM to mount the newly-created filesystem on the newly-created
-#### directory mount-point...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: mount ${_oraMntDir} on ${_vmName1}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr1} "sudo mount ${_scsiPartition} ${_oraMntDir}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo mount ${_oraMntDir} on ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the first VM to create sub-directories for the Oracle database files
-#### and for the Oracle Flash Recovery Area (FRA) files...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: mkdir ${_oraDataDir} ${_oraFRADir} on ${_vmName1}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr1} "sudo mkdir -p ${_oraDataDir} ${_oraFRADir}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo mkdir ${_oraDataDir} ${_oraFRADir} on ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the first VM to set the OS account:group ownership of the sub-directories
-#### within the newly-created filesystem...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: chown ${_oraDataDir} ${_oraFRADir} on ${_vmName1}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr1} "sudo chown ${_oraOsAcct}:${_oraOsGroup} ${_oraDataDir} ${_oraFRADir}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo chown ${_oraDataDir} ${_oraFRADir} on ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the first VM to copy the file "oraInst.loc" from the current Oracle
-#### Inventory default location into the "/etc" system directory, where it can be
-#### easily found by any Oracle programs accessing the host.  Set the ownership and
-#### permissions appropriately for the copied file...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: copy oraInst.loc file on ${_vmName1}" | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr1} "sudo cp ${_oraInvDir}/oraInst.loc /etc" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo cp ${_azureOwner}@${_ipAddr1}:${_oraInvDir}/oraInst.loc /etc on ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-###ssh ${_azureOwner}@${_ipAddr1} "sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc on ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-###ssh ${_azureOwner}@${_ipAddr1} "sudo chmod 644 /etc/oraInst.loc" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo chmod 644 /etc/oraInst.loc on ${_vmName1}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the second VM to create a GPT label on the SCSI device...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: parted ${_scsiDev} mklabel gpt on ${_vmName2}..." | tee -a ${_logFile}
-###ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr2} "sudo parted ${_scsiDev} mklabel gpt" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo parted ${_scsiDev} mklabel gpt on ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the second VM to create a single primary partitition consuming the entire
-#### SCSI device...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: parted -a opt ${_scsiDev} mkpart primary on ${_vmName2}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr2} "sudo parted -a opt ${_scsiDev} mkpart primary ext4 0% 100%" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo parted mkpart -a opt ${_scsiDev} primary ext4 0% 100% on ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the second VM to create a directory mount-point for the soon-to-be-
-#### created filesystem in which Oracle database files will reside...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: mkdir ${_oraMntDir} on ${_vmName2}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr2} "sudo mkdir ${_oraMntDir}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo mkdir ${_oraMntDir} on ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the second VM to set the OS account:group ownership of the directory
-#### mount-point...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: chown ${_oraMntDir} on ${_vmName2}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr2} "sudo chown ${_oraOsAcct}:${_oraOsGroup} ${_oraMntDir}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo chown ${_oraMntDir} on ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the second VM to create the Linux EXT4 filesystem on the partitioned
-#### data disk...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: mkfs.ext4 ${_scsiPartition} on ${_vmName2}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr2} "sudo mkfs.ext4 ${_scsiPartition}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo mkfs.ext4 ${_scsiPartition} on ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the second VM to mount the newly-created filesystem on the newly-created
-#### directory mount-point...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: mount ${_oraMntDir} on ${_vmName2}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr2} "sudo mount ${_scsiPartition} ${_oraMntDir}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo mount ${_oraMntDir} on ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the second VM to create sub-directories for the Oracle database files
-#### and for the Oracle Flash Recovery Area (FRA) files...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: mkdir ${_oraDataDir} ${_oraFRADir} on ${_vmName2}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr2} "sudo mkdir -p ${_oraDataDir} ${_oraFRADir}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo mkdir ${_oraDataDir} ${_oraFRADir} on ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the second VM to set the OS account:group ownership of the sub-
-#### directories within the newly-created filesystem...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: chown ${_oraDataDir} ${_oraFRADir} on ${_vmName2}..." | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr2} "sudo chown ${_oraOsAcct}:${_oraOsGroup} ${_oraDataDir} ${_oraFRADir}" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo chown ${_oraDataDir} ${_oraFRADir} on ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-####
-####--------------------------------------------------------------------------------
-#### SSH into the second VM to copy the file "oraInst.loc" from the current Oracle
-#### Inventory default location into the "/etc" system directory, where it can be
-#### easily found by any Oracle programs accessing the host.  Set the ownership and
-#### permissions appropriately for the copied file...
-####--------------------------------------------------------------------------------
-###echo "`date` - INFO: copy oraInst.loc file on ${_vmName2}" | tee -a ${_logFile}
-###ssh ${_azureOwner}@${_ipAddr2} "sudo cp ${_oraInvDir}/oraInst.loc /etc" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo cp ${_azureOwner}@${_ipAddr2}:${_oraInvDir}/oraInst.loc /etc on ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-###ssh ${_azureOwner}@${_ipAddr2} "sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc on ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
-###ssh ${_azureOwner}@${_ipAddr2} "sudo chmod 644 /etc/oraInst.loc" >> ${_logFile} 2>&1
-###if (( $? != 0 )); then
-###	echo "`date` - FAIL: sudo chmod 644 /etc/oraInst.loc on ${_vmName2}" | tee -a ${_logFile}
-###	exit 1
-###fi
+#
+#--------------------------------------------------------------------------------
+# SSH into all three VM's to stop the Linux firewall daemon, if it is running...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: systemctl stop firewalld on ${_vmName1}..." | tee -a ${_logFile}
+ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr1} "sudo systemctl stop firewalld" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo systemctl stop firewalld on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+echo "`date` - INFO: systemctl stop firewalld on ${_vmName2}..." | tee -a ${_logFile}
+ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr2} "sudo systemctl stop firewalld" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo systemctl stop firewalld on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+echo "`date` - INFO: systemctl stop firewalld on ${_vmName3}..." | tee -a ${_logFile}
+ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr3} "sudo systemctl stop firewalld" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo systemctl stop firewalld on ${_vmName3}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the first VM to create a GPT label on the SCSI device...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: parted ${_scsiDev} mklabel gpt on ${_vmName1}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr1} "sudo parted ${_scsiDev} mklabel gpt" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo parted ${_scsiDev} mklabel gpt on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the first VM to create a single primary partitition consuming the entire
+# SCSI device...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: parted -a opt ${_scsiDev} mkpart primary on ${_vmName1}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr1} "sudo parted -a opt ${_scsiDev} mkpart primary ext4 0% 100%" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo parted mkpart -a opt ${_scsiDev} primary ext4 0% 100% on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the first VM to create a directory mount-point for the soon-to-be-created
+# filesystem in which Oracle database files will reside...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: mkdir ${_oraMntDir} on ${_vmName1}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr1} "sudo mkdir ${_oraMntDir}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo mkdir ${_oraMntDir} on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the first VM to set the OS account:group ownership of the directory
+# mount-point...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: chown ${_oraMntDir} on ${_vmName1}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr1} "sudo chown ${_oraOsAcct}:${_oraOsGroup} ${_oraMntDir}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo chown ${_oraMntDir} on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the first VM to create the Linux EXT4 filesystem on the partitioned
+# data disk...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: mkfs.ext4 ${_scsiPartition} on ${_vmName1}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr1} "sudo mkfs.ext4 ${_scsiPartition}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo mkfs.ext4 ${_scsiPartition} on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the first VM to mount the newly-created filesystem on the newly-created
+# directory mount-point...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: mount ${_oraMntDir} on ${_vmName1}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr1} "sudo mount ${_scsiPartition} ${_oraMntDir}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo mount ${_oraMntDir} on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the first VM to create sub-directories for the Oracle database files
+# and for the Oracle Flash Recovery Area (FRA) files...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: mkdir ${_oraDataDir} ${_oraFRADir} on ${_vmName1}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr1} "sudo mkdir -p ${_oraDataDir} ${_oraFRADir}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo mkdir -p ${_oraDataDir} ${_oraFRADir} on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the first VM to set the OS account:group ownership of the sub-directories
+# within the newly-created filesystem...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: chown ${_oraDataDir} ${_oraFRADir} on ${_vmName1}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr1} "sudo chown ${_oraOsAcct}:${_oraOsGroup} ${_oraDataDir} ${_oraFRADir}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo chown ${_oraDataDir} ${_oraFRADir} on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the first VM to copy the file "oraInst.loc" from the current Oracle
+# Inventory default location into the "/etc" system directory, where it can be
+# easily found by any Oracle programs accessing the host.  Set the ownership and
+# permissions appropriately for the copied file...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: copy oraInst.loc file on ${_vmName1}" | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr1} "sudo cp ${_oraInvDir}/oraInst.loc /etc" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo cp ${_azureOwner}@${_ipAddr1}:${_oraInvDir}/oraInst.loc /etc on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+ssh ${_azureOwner}@${_ipAddr1} "sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+ssh ${_azureOwner}@${_ipAddr1} "sudo chmod 644 /etc/oraInst.loc" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo chmod 644 /etc/oraInst.loc on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the second VM to create a GPT label on the SCSI device...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: parted ${_scsiDev} mklabel gpt on ${_vmName2}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr2} "sudo parted ${_scsiDev} mklabel gpt" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo parted ${_scsiDev} mklabel gpt on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the second VM to create a single primary partitition consuming the entire
+# SCSI device...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: parted -a opt ${_scsiDev} mkpart primary on ${_vmName2}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr2} "sudo parted -a opt ${_scsiDev} mkpart primary ext4 0% 100%" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo parted mkpart -a opt ${_scsiDev} primary ext4 0% 100% on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the second VM to create a directory mount-point for the soon-to-be-
+# created filesystem in which Oracle database files will reside...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: mkdir ${_oraMntDir} on ${_vmName2}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr2} "sudo mkdir ${_oraMntDir}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo mkdir ${_oraMntDir} on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the second VM to set the OS account:group ownership of the directory
+# mount-point...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: chown ${_oraMntDir} on ${_vmName2}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr2} "sudo chown ${_oraOsAcct}:${_oraOsGroup} ${_oraMntDir}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo chown ${_oraMntDir} on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the second VM to create the Linux EXT4 filesystem on the partitioned
+# data disk...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: mkfs.ext4 ${_scsiPartition} on ${_vmName2}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr2} "sudo mkfs.ext4 ${_scsiPartition}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo mkfs.ext4 ${_scsiPartition} on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the second VM to mount the newly-created filesystem on the newly-created
+# directory mount-point...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: mount ${_oraMntDir} on ${_vmName2}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr2} "sudo mount ${_scsiPartition} ${_oraMntDir}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo mount ${_oraMntDir} on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the second VM to create sub-directories for the Oracle database files
+# and for the Oracle Flash Recovery Area (FRA) files...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: mkdir ${_oraDataDir} ${_oraFRADir} on ${_vmName2}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr2} "sudo mkdir -p ${_oraDataDir} ${_oraFRADir}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo mkdir -p ${_oraDataDir} ${_oraFRADir} on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the second VM to set the OS account:group ownership of the sub-
+# directories within the newly-created filesystem...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: chown ${_oraDataDir} ${_oraFRADir} on ${_vmName2}..." | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr2} "sudo chown ${_oraOsAcct}:${_oraOsGroup} ${_oraDataDir} ${_oraFRADir}" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo chown ${_oraDataDir} ${_oraFRADir} on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+#
+#--------------------------------------------------------------------------------
+# SSH into the second VM to copy the file "oraInst.loc" from the current Oracle
+# Inventory default location into the "/etc" system directory, where it can be
+# easily found by any Oracle programs accessing the host.  Set the ownership and
+# permissions appropriately for the copied file...
+#--------------------------------------------------------------------------------
+echo "`date` - INFO: copy oraInst.loc file on ${_vmName2}" | tee -a ${_logFile}
+ssh ${_azureOwner}@${_ipAddr2} "sudo cp ${_oraInvDir}/oraInst.loc /etc" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo cp ${_azureOwner}@${_ipAddr2}:${_oraInvDir}/oraInst.loc /etc on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+ssh ${_azureOwner}@${_ipAddr2} "sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo chown ${_oraOsAcct}:${_oraOsGroup} /etc/oraInst.loc on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
+ssh ${_azureOwner}@${_ipAddr2} "sudo chmod 644 /etc/oraInst.loc" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: sudo chmod 644 /etc/oraInst.loc on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
 #
 #--------------------------------------------------------------------------------
 # SSH into the first VM to run the Oracle Database Creation Assistant (DBCA)
@@ -897,7 +920,7 @@ fi
 # by the Oracle DataGuard DGMGRL utility...
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: configure TNSNAMES.ORA on ${_vmName3}..." | tee -a ${_logFile}
-ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr3} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}=(DESCRIPTION=(FAILOVER=ON)(LOAD_BALANCE=OFF)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort}))(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName2}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=PRIMARY)(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr3} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}=(DESCRIPTION=(FAILOVER=ON)(LOAD_BALANCE=OFF)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort}))(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName2}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=PRIMARY)(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: set ${_oraSid} in tnsnames.ora on ${_vmName3}" | tee -a ${_logFile}
 	exit 1
@@ -1026,7 +1049,12 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: adding static LISTENER service on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"lsnrctl reload LISTENER\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+lsnrctl reload LISTENER\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: lsnrctl reload LISTENER on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
@@ -1165,6 +1193,10 @@ fi
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: create STANDBY LOGFILE GROUPS..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
+if [ ! -d ${_oraFRADir}/${_oraSid} ]
+then
+	mkdir ${_oraFRADir}/${_oraSid}
+fi
 export ORACLE_SID=${_oraSid}
 export ORACLE_HOME=${_oraHome}
 export PATH=${_oraHome}/bin:\${PATH}
@@ -1369,7 +1401,12 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: adding static LISTENER service on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"lsnrctl reload LISTENER\"" >> ${_logFile} 2>&1
+ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+lsnrctl reload LISTENER\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: lsnrctl reload LISTENER on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
@@ -1525,7 +1562,12 @@ fi
 # configure and enable Oracle DataGuard and Fast-Start Failover (FSFO)...
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: enable DataGuard and FSFO..." | tee -a ${_logFile}
-ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"dgmgrl sys/${_oraSysPwd}@${_oraSid}_dgmgrl << __EOF__
+ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
+dgmgrl sys/${_oraSysPwd}@${_oraSid}_dgmgrl << __EOF__
 create configuration 'FSF' as primary database is ${_oraSid} connect identifier is ${_oraSid}_dgmgrl;
 add database ${_oraSid}_stdby as connect identifier is ${_oraSid}_stdby_dgmgrl maintained as physical;
 edit database ${_oraSid} set property LogXptMode='SYNC';
@@ -1551,6 +1593,10 @@ echo "`date` - INFO: generate observer script on ${_vmName3}..." | tee -a ${_log
 ssh ${_azureOwner}@${_ipAddr3} "sudo su - ${_oraOsAcct} -c \"
 echo \\\"#!/bin/bash\\\" > ./${_oraSid}_dgmgrl.sh
 chmod 700 ./${_oraSid}_dgmgrl.sh
+echo \\\"export ORACLE_SID=${_oraSid}\\\" >> ./${_oraSid}_dgmgrl.sh
+echo \\\"export ORACLE_HOME=${_oraHome}\\\" >> ./${_oraSid}_dgmgrl.sh
+echo \\\"export PATH=${_oraHome}/bin:\${PATH}\\\" >> ./${_oraSid}_dgmgrl.sh
+echo \\\"export TNS_ADMIN=${_oraHome}/network/admin\\\" >> ./${_oraSid}_dgmgrl.sh
 echo \\\"dgmgrl << __EOF__\\\" >> ./${_oraSid}_dgmgrl.sh
 echo \\\"connect sys/${_oraSysPwd}@${_oraSid}_dgmgrl\\\" >> ./${_oraSid}_dgmgrl.sh
 echo \\\"show configuration\\\" >> ./${_oraSid}_dgmgrl.sh
@@ -1584,6 +1630,10 @@ sleep 10
 #--------------------------------------------------------------------------------
 echo "`date` - INFO: show configuration and fast_start failover on ${_vmName3}..." | tee -a ${_logFile}
 ssh ${_azureOwner}@${_ipAddr3} "sudo su - ${_oraOsAcct} -c \"
+export ORACLE_SID=${_oraSid}
+export ORACLE_HOME=${_oraHome}
+export PATH=${_oraHome}/bin:\${PATH}
+export TNS_ADMIN=${_oraHome}/network/admin
 dgmgrl sys/${_oraSysPwd}@${_oraSid}_dgmgrl << __EOF__
 show configuration
 show fast_start failover
