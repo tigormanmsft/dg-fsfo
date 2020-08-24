@@ -107,12 +107,13 @@
 #	TGorman	08jun20	v0.6 turn off Linux firewall on VMs
 #	TGorman	24aug20	v0.7 added "N" and "M" command-line switches for
 #			     debugging, made firewall disable a warning...
+#	TGorman	24aug20	v0.8 added TNSNAMES.ORA entry for TAF
 #================================================================================
 #
 #--------------------------------------------------------------------------------
 # Set global environment variables for the entire script...
 #--------------------------------------------------------------------------------
-_progVersion="v0.7"
+_progVersion="v0.8"
 _outputMode="terse"
 _azureOwner="`whoami`"
 _azureProject="oradg"
@@ -965,6 +966,11 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: set ${_oraSid}_stdby_dgmgrl in tnsnames.ora on ${_vmName1}" | tee -a ${_logFile}
 	exit 1
 fi
+ssh ${_azureOwner}@${_ipAddr1} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_taf=(DESCRIPTION=(FAILOVER=ON)(LOAD_BALANCE=OFF)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort}))(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName2}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=PRIMARY)(FAILOVER_MODE=(TYPE=SELECT)(METHOD=BASIC)(RETRIES=60)(DELAY=1))))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: set ${_oraSid}_taf in tnsnames.ora on ${_vmName1}" | tee -a ${_logFile}
+	exit 1
+fi
 #
 #--------------------------------------------------------------------------------
 # Create TNS names entries for both TNS services in the "tnsnames.ora"
@@ -996,6 +1002,11 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: set ${_oraSid}_stdby_dgmgrl in tnsnames.ora on ${_vmName2}" | tee -a ${_logFile}
 	exit 1
 fi
+ssh ${_azureOwner}@${_ipAddr2} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_taf=(DESCRIPTION=(FAILOVER=ON)(LOAD_BALANCE=OFF)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort}))(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName2}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=PRIMARY)(FAILOVER_MODE=(TYPE=SELECT)(METHOD=BASIC)(RETRIES=60)(DELAY=1))))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: set ${_oraSid}_taf in tnsnames.ora on ${_vmName2}" | tee -a ${_logFile}
+	exit 1
+fi
 #
 #--------------------------------------------------------------------------------
 # Configure a "tnsnames.ora" configuration file on the 3rd "observer" VM for use
@@ -1015,6 +1026,11 @@ fi
 ssh ${_azureOwner}@${_ipAddr3} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_stdby_dgmgrl=(DESCRIPTION=(SDU=32767)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName2}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVICE_NAME=${_oraSid}_stdby_dgmgrl)(SERVER=DEDICATED)))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
 	echo "`date` - FAIL: set ${_oraSid}_stdby_dgmgrl in tnsnames.ora on ${_vmName3}" | tee -a ${_logFile}
+	exit 1
+fi
+ssh ${_azureOwner}@${_ipAddr3} "sudo su - ${_oraOsAcct} -c \"echo \\\"${_oraSid}_taf=(DESCRIPTION=(FAILOVER=ON)(LOAD_BALANCE=OFF)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName1}.${_vmDomain})(PORT=${_oraLsnrPort}))(ADDRESS=(PROTOCOL=TCP)(HOST=${_vmName2}.${_vmDomain})(PORT=${_oraLsnrPort})))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=PRIMARY)(FAILOVER_MODE=(TYPE=SELECT)(METHOD=BASIC)(RETRIES=60)(DELAY=1))))\\\" >> ${_oraHome}/network/admin/tnsnames.ora\"" >> ${_logFile} 2>&1
+if (( $? != 0 )); then
+	echo "`date` - FAIL: set ${_oraSid}_taf in tnsnames.ora on ${_vmName3}" | tee -a ${_logFile}
 	exit 1
 fi
 #
