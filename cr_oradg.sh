@@ -38,9 +38,64 @@
 #
 # Command-line Parameters:
 #
+#	cr_oradg.sh -G val -H val -I val -N -M -O val -P val -S val -c val -d val -i val -p val -r val -s val -u val -v -w val
+#
+#	where:
+#
+#	-G resource=group-name	name of the Azure resource group (default: ${_azureOwner}-${_azureProject}-rg)
+#	-H ORACLE_HOME		full path of the ORACLE_HOME software (default: /u01/app/oracle/product/12.2.0/dbhome_1)
+#	-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_DS1_v2)
+#	-N			skip steps to create vnet/subnet, public-IP, NSG, rules, and PPG (default: false)
+#	-M			skip steps to create VMs and storage (default: false)
+#	-O owner-tag		name of the owner to use in Azure tags (default: `whoami`)
+#	-P project-tag		name of the project to use in Azure tags (default: "oradg")
+#	-S subscription		name of the Azure subscription (no default)
+#	-V vip-IPaddr		IP address for the virtual IP (VIP) (default: 10.0.0.10)
+#	-d domain-name		IP domain name (default: internal.cloudapp.net)
+#	-i instance-type	name of the Azure VM instance type for database nodes (default: Standard_DS11-1_v2)
+#	-p Oracle-port		port number of the Oracle TNS Listener (default: 1521)
+#	-r region		name of Azure region (default: westus2)
+#	-s ORACLE_SID		Oracle System ID (SID) value (default: oradb01)
+#	-u urn			URN from Azure marketplace (default: Oracle:Oracle-Database-Ee:12.2.0.1:12.2.20180725)
+#	-v                      set verbose output is true (default: false)
+#	-w SYS/SYSTEM pwd	initial password for Oracle database SYS and SYSTEM accounts (default: oracleA1)
+#
 # Expected command-line output:
 #
 # Usage notes:
+#
+#	1) Azure subscription must be specified with "-S" switch, always
+#
+#	2) Azure owner, default is output of "whoami" command in shell, can be
+#	   specified using "-O" switch on command-line
+#
+#	3) Azure project, default is "oradg", can be specified using "-P"
+#	   switch on command-line
+#
+#	4) Azure resource group, specify with "-G" switch or with a
+#	   combination of "-O" (project owner tag) and "-P" (project name)
+#	   values (default: "(project owner tag)-(project name)-rg").
+#
+#	   For example, if the project owner tag is "abc" and the project
+#	   name is "beetlejuice", then by default the resource group is
+#	   expected to be named "abc-beetlejuice-rg", unless changes have
+#	   been specified using the "-G", "-O", or "-P" switches
+#
+#	5) Use the "-v" (verbose) switch to verify that program variables
+#	   have the expected values
+#
+#	6) For users who are expected to use prebuilt storage accounts
+#	   and networking (i.e. vnet, subnet, network security groups, etc),
+#	   consider using the "-N" switch to accept these as prerequisites 
+#
+#	Please be aware that Azure owner (i.e. "-O") and Azure project (i.e. "-P")
+#	are used to generate names for the Azure resource group, storage
+#	account, virtual network, subnet, network security group and rules,
+#	VM, and storage disks.  Use the "-v" switch to verify expected naming.
+#
+#	The "-N" and "-M" switches were mainly used for debugging, and might well
+#	be removed in more mature versions of the script.  They intended to skip
+#	over some steps if something failed later on.
 #
 # Modifications:
 #	TGorman	20apr20	v0.1 written
@@ -50,17 +105,21 @@
 #			     PATH, and TNS_ADMIN explicitly during all "su - oracle"
 #			     sessions
 #	TGorman	08jun20	v0.6 turn off Linux firewall on VMs
+#	TGorman	24aug20	v0.7 added "N" and "M" command-line switches for
+#			     debugging, made firewall disable a warning...
 #================================================================================
 #
 #--------------------------------------------------------------------------------
 # Set global environment variables for the entire script...
 #--------------------------------------------------------------------------------
-_progVersion="v0.6"
+_progVersion="v0.7"
 _outputMode="terse"
 _azureOwner="`whoami`"
 _azureProject="oradg"
 _azureRegion="westus2"
 _azureSubscription=""
+_skipVnetNicNsg="false"
+_skipMachines="false"
 _workDir="`pwd`"
 _logFile="${_workDir}/${_azureOwner}-${_azureProject}.log"
 _saName="${_azureOwner}${_azureProject}sa"
@@ -110,12 +169,14 @@ _oraLsnrPort=1521
 # Accept command-line parameter values to override default values (above)..
 #--------------------------------------------------------------------------------
 typeset -i _parseErrs=0
-while getopts ":G:H:I:O:P:S:c:d:i:p:r:s:u:vw:" OPTNAME
+while getopts ":G:H:I:MNO:P:S:c:d:i:p:r:s:u:vw:" OPTNAME
 do
 	case "${OPTNAME}" in
 		G)	_newRgName="${OPTARG}"		;;
 		H)	_oraHome="${OPTARG}"		;;
 		I)	_vmObsvrInstanceType="${OPTARG}" ;;
+		M)	_skipMachines="true"		;;
+		N)	_skipVnetNicNsg="true"		;;
 		O)	_azureOwner="${OPTARG}"		;;
 		P)	_azureProject="${OPTARG}"	;;
 		S)	_azureSubscription="${OPTARG}"	;;
@@ -143,11 +204,13 @@ shift $((OPTIND-1))
 # a usage message and exit with failure status...
 #--------------------------------------------------------------------------------
 if (( ${_parseErrs} > 0 )); then
-	echo "Usage: $0 -G val -H val -I val -O val -P val -S val -c val -d val -i val -p val -r val -s val -u val -v -w val"
+	echo "Usage: $0 -G val -H val -I val -N -M -O val -P val -S val -c val -d val -i val -p val -r val -s val -u val -v -w val"
 	echo "where:"
 	echo "	-G resource=group-name	name of the Azure resource group (default: ${_azureOwner}-${_azureProject}-rg)"
 	echo "	-H ORACLE_HOME		full pathname of Oracle software (default: /u01/app/oracle/product/12.2.0/dbhome_1)"
 	echo "	-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_DS1_v2)"
+	echo "	-N			skip steps to create vnet/subnet, public-IP, NSG, and network rules"
+	echo "	-M			skip steps to create VMs and storage"
 	echo "	-O owner-tag		name of the owner to use in Azure tags (default: \$USERNAME)"
 	echo "	-P project-tag		name of the project to use in Azure tags (default: oradg)"
 	echo "	-S subscription		name of the Azure subscription (no default)"
@@ -157,9 +220,9 @@ if (( ${_parseErrs} > 0 )); then
 	echo "	-p Oracle-port		port number of the Oracle TNS Listener (default: 1521)"
 	echo "	-r region		name of Azure region (default: westus2)"
 	echo "	-s ORACLE_SID		Oracle System ID (SID) value (default: oradb01)"
-	echo "	-u urn			Azure URN for the VM from the marketplace (default: Oracle:Oracle-Database-Ee:12.2.0.1:12.2.20180725)"
-	echo "	-w SYS/SYSTEM pwd	initial password for Oracle database SYS and SYSTEM accounts (default: oracleA1)"
+	echo "	-u urn			URN from Azure marketplace (default: Oracle:Oracle-Database-Ee:12.2.0.1:12.2.20180725)"
 	echo "	-v			set verbose output is true (default: false)"
+	echo "	-w SYS/SYSTEM pwd	initial password for Oracle database SYS and SYSTEM accounts (default: oracleA1)"
 	exit 1
 fi
 #
@@ -270,273 +333,290 @@ if (( $? != 0 )); then
 fi
 #
 #--------------------------------------------------------------------------------
-# Create an Azure storage account for this project...
+# If the user elected to skip the creation of vnet, the NIC, the NSG, and the
+# rules...
 #--------------------------------------------------------------------------------
-echo "`date` - INFO: az storage account create ${_saName}..." | tee -a ${_logFile}
-az storage account create \
-	--name ${_saName} \
-	--sku Standard_LRS \
-	--access-tier Hot \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az storage account create ${_saName}" | tee -a ${_logFile}
-	exit 1
+if [[ "${_skipVnetNicNsg}" = "false" ]]
+then
+	#
+	#------------------------------------------------------------------------
+	# Create an Azure storage account for this project...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az storage account create ${_saName}..." | tee -a ${_logFile}
+	az storage account create \
+		--name ${_saName} \
+		--sku Standard_LRS \
+		--access-tier Hot \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az storage account create ${_saName}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create an Azure virtual network for this project...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az network vnet create ${_vnetName}..." | tee -a ${_logFile}
+	az network vnet create \
+		--name ${_vnetName} \
+		--address-prefixes 10.0.0.0/16 \
+		--subnet-name ${_subnetName} \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--subnet-prefixes 10.0.0.0/24 \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az network vnet create ${_vnetName}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create an Azure network security group for this project...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az network nsg create ${_nsgName}..." | tee -a ${_logFile}
+	az network nsg create \
+		--name ${_nsgName} \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az network nsg create ${_nsgName}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create a custom Azure network security group rule to permit SSH access...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az network nsg rule create default-all-ssh..." | tee -a ${_logFile}
+	az network nsg rule create \
+		--name default-all-ssh \
+		--nsg-name ${_nsgName} \
+		--priority 1000 \
+		--direction Inbound \
+		--protocol TCP \
+		--source-address-prefixes \* \
+		--source-port-ranges \* \
+		--destination-address-prefixes \* \
+		--destination-port-ranges 22 \
+		--access Allow \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az network nsg rule create default-all-ssh" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
 fi
 #
 #--------------------------------------------------------------------------------
-# Create an Azure virtual network for this project...
+# If the user elected to skip the creation of virtual machines and data storage...
 #--------------------------------------------------------------------------------
-echo "`date` - INFO: az network vnet create ${_vnetName}..." | tee -a ${_logFile}
-az network vnet create \
-	--name ${_vnetName} \
-	--address-prefixes 10.0.0.0/16 \
-	--subnet-name ${_subnetName} \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--subnet-prefixes 10.0.0.0/24 \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az network vnet create ${_vnetName}" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create an Azure network security group for this project...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az network nsg create ${_nsgName}..." | tee -a ${_logFile}
-az network nsg create \
-	--name ${_nsgName} \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az network nsg create ${_nsgName}" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create a custom Azure network security group rule to permit SSH access...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az network nsg rule create default-all-ssh..." | tee -a ${_logFile}
-az network nsg rule create \
-	--name default-all-ssh \
-	--nsg-name ${_nsgName} \
-	--priority 1000 \
-	--direction Inbound \
-	--protocol TCP \
-	--source-address-prefixes \* \
-	--source-port-ranges \* \
-	--destination-address-prefixes \* \
-	--destination-port-ranges 22 \
-	--access Allow \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az network nsg rule create default-all-ssh" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create an Azure public IP address object for use with the first VM...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az network public-ip create ${_pubIpName1}..." | tee -a ${_logFile}
-az network public-ip create \
-	--name ${_pubIpName1} \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--allocation-method Static \
-	--sku Basic \
-	--version IPv4 \
-	--zone ${_vmZone1} \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az network public-ip create ${_pubIpName1}" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create an Azure network interface (NIC) object for use with the first VM...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az network nic create ${_nicName1}..." | tee -a ${_logFile}
-az network nic create \
-	--name ${_nicName1} \
-	--vnet-name ${_vnetName} \
-	--subnet ${_subnetName} \
-	--network-security-group ${_nsgName} \
-	--public-ip-address ${_pubIpName1} \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az network nic create ${_nicName1}" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create the first Azure virtual machine (VM), intended to be used as the primary
-# Oracle database server/host...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az vm create ${_vmName1}..." | tee -a ${_logFile}
-az vm create \
-	--name ${_vmName1} \
-	--image ${_vmUrn}:latest \
-	--admin-username ${_azureOwner} \
-	--size ${_vmDbInstanceType} \
-	--zone ${_vmZone1} \
-	--nics ${_nicName1} \
-	--os-disk-name ${_vmName1}-osdisk \
-	--os-disk-size-gb ${_vmOsDiskSize} \
-	--os-disk-caching ReadWrite \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--generate-ssh-keys \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az vm create ${_vmName1}" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create and attach a data disk to the VM...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az vm disk attach..." | tee -a ${_logFile}
-az vm disk attach \
-	--new \
-	--name ${_vmName1}-datadisk01 \
-	--vm-name ${_vmName1} \
-	--caching ${_vmDataDiskCaching} \
-	--size-gb ${_vmDataDiskSize} \
-	--sku Premium_LRS \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az vm disk attach ${_vmName1}-datadisk01" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create an Azure public IP address object for use with the second VM...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az network public-ip create ${_pubIpName2}..." | tee -a ${_logFile}
-az network public-ip create \
-	--name ${_pubIpName2} \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--allocation-method Static \
-	--sku Basic \
-	--version IPv4 \
-	--zone ${_vmZone2} \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az network public-ip create ${_pubIpName2}" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create an Azure network interface (NIC) object for use with the second VM...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az network nic create ${_nicName2}..." | tee -a ${_logFile}
-az network nic create \
-	--name ${_nicName2} \
-	--vnet-name ${_vnetName} \
-	--subnet ${_subnetName} \
-	--network-security-group ${_nsgName} \
-	--public-ip-address ${_pubIpName2} \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az network nic create ${_nicName2}" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create the second Azure virtual machine (VM), intended to be used as the standby
-# Oracle database server/host...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az vm create ${_vmName2}..." | tee -a ${_logFile}
-az vm create \
-	--name ${_vmName2} \
-	--image ${_vmUrn}:latest \
-	--admin-username ${_azureOwner} \
-	--size ${_vmDbInstanceType} \
-	--zone ${_vmZone2} \
-	--nics ${_nicName2} \
-	--os-disk-name ${_vmName2}-osdisk \
-	--os-disk-size-gb ${_vmOsDiskSize} \
-	--os-disk-caching ReadWrite \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--generate-ssh-keys \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az vm create ${_vmName2}" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create and attach a data disk to the VM...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az vm disk attach..." | tee -a ${_logFile}
-az vm disk attach \
-	--new \
-	--name ${_vmName2}-datadisk01 \
-	--vm-name ${_vmName2} \
-	--caching ${_vmDataDiskCaching} \
-	--size-gb ${_vmDataDiskSize} \
-	--sku Premium_LRS \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az vm disk attach ${_vmName2}-datadisk01" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create an Azure public IP address object for use with the third VM...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az network public-ip create ${_pubIpName3}..." | tee -a ${_logFile}
-az network public-ip create \
-	--name ${_pubIpName3} \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--allocation-method Static \
-	--sku Basic \
-	--version IPv4 \
-	--zone ${_vmZone3} \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az network public-ip create ${_pubIpName3}" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create an Azure network interface (NIC) object for use with the third VM...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az network nic create ${_nicName3}..." | tee -a ${_logFile}
-az network nic create \
-	--name ${_nicName3} \
-	--vnet-name ${_vnetName} \
-	--subnet ${_subnetName} \
-	--network-security-group ${_nsgName} \
-	--public-ip-address ${_pubIpName3} \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az network nic create ${_nicName3}" | tee -a ${_logFile}
-	exit 1
-fi
-#
-#--------------------------------------------------------------------------------
-# Create the third Azure virtual machine (VM), intended to be used as the Oracle
-# DataGuard FSFO observer node...
-#--------------------------------------------------------------------------------
-echo "`date` - INFO: az vm create ${_vmName3}..." | tee -a ${_logFile}
-az vm create \
-	--name ${_vmName3} \
-	--image ${_vmUrn}:latest \
-	--admin-username ${_azureOwner} \
-	--size ${_vmObsvrInstanceType} \
-	--zone ${_vmZone3} \
-	--nics ${_nicName3} \
-	--os-disk-name ${_vmName3}-osdisk \
-	--os-disk-size-gb ${_vmOsDiskSize} \
-	--os-disk-caching ReadWrite \
-	--tags owner=${_azureOwner} project=${_azureProject} \
-	--generate-ssh-keys \
-	--verbose >> ${_logFile} 2>&1
-if (( $? != 0 )); then
-	echo "`date` - FAIL: az vm create ${_vmName3}" | tee -a ${_logFile}
-	exit 1
+if [[ "${_skipMachines}" = "false" ]]
+then
+	#
+	#------------------------------------------------------------------------
+	# Create an Azure public IP address object for use with the first VM...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az network public-ip create ${_pubIpName1}..." | tee -a ${_logFile}
+	az network public-ip create \
+		--name ${_pubIpName1} \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--allocation-method Static \
+		--sku Basic \
+		--version IPv4 \
+		--zone ${_vmZone1} \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az network public-ip create ${_pubIpName1}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create an Azure network interface (NIC) object for use with the first VM...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az network nic create ${_nicName1}..." | tee -a ${_logFile}
+	az network nic create \
+		--name ${_nicName1} \
+		--vnet-name ${_vnetName} \
+		--subnet ${_subnetName} \
+		--network-security-group ${_nsgName} \
+		--public-ip-address ${_pubIpName1} \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az network nic create ${_nicName1}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create the first Azure virtual machine (VM), intended to be used as the
+	# primary Oracle database server/host...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az vm create ${_vmName1}..." | tee -a ${_logFile}
+	az vm create \
+		--name ${_vmName1} \
+		--image ${_vmUrn}:latest \
+		--admin-username ${_azureOwner} \
+		--size ${_vmDbInstanceType} \
+		--zone ${_vmZone1} \
+		--nics ${_nicName1} \
+		--os-disk-name ${_vmName1}-osdisk \
+		--os-disk-size-gb ${_vmOsDiskSize} \
+		--os-disk-caching ReadWrite \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--generate-ssh-keys \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az vm create ${_vmName1}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create and attach a data disk to the VM...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az vm disk attach..." | tee -a ${_logFile}
+	az vm disk attach \
+		--new \
+		--name ${_vmName1}-datadisk01 \
+		--vm-name ${_vmName1} \
+		--caching ${_vmDataDiskCaching} \
+		--size-gb ${_vmDataDiskSize} \
+		--sku Premium_LRS \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az vm disk attach ${_vmName1}-datadisk01" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create an Azure public IP address object for use with the second VM...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az network public-ip create ${_pubIpName2}..." | tee -a ${_logFile}
+	az network public-ip create \
+		--name ${_pubIpName2} \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--allocation-method Static \
+		--sku Basic \
+		--version IPv4 \
+		--zone ${_vmZone2} \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az network public-ip create ${_pubIpName2}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create an Azure network interface (NIC) object for use with the second VM...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az network nic create ${_nicName2}..." | tee -a ${_logFile}
+	az network nic create \
+		--name ${_nicName2} \
+		--vnet-name ${_vnetName} \
+		--subnet ${_subnetName} \
+		--network-security-group ${_nsgName} \
+		--public-ip-address ${_pubIpName2} \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az network nic create ${_nicName2}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create the second Azure virtual machine (VM), intended to be used as
+	# the standby Oracle database server/host...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az vm create ${_vmName2}..." | tee -a ${_logFile}
+	az vm create \
+		--name ${_vmName2} \
+		--image ${_vmUrn}:latest \
+		--admin-username ${_azureOwner} \
+		--size ${_vmDbInstanceType} \
+		--zone ${_vmZone2} \
+		--nics ${_nicName2} \
+		--os-disk-name ${_vmName2}-osdisk \
+		--os-disk-size-gb ${_vmOsDiskSize} \
+		--os-disk-caching ReadWrite \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--generate-ssh-keys \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az vm create ${_vmName2}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create and attach a data disk to the VM...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az vm disk attach..." | tee -a ${_logFile}
+	az vm disk attach \
+		--new \
+		--name ${_vmName2}-datadisk01 \
+		--vm-name ${_vmName2} \
+		--caching ${_vmDataDiskCaching} \
+		--size-gb ${_vmDataDiskSize} \
+		--sku Premium_LRS \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az vm disk attach ${_vmName2}-datadisk01" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create an Azure public IP address object for use with the third VM...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az network public-ip create ${_pubIpName3}..." | tee -a ${_logFile}
+	az network public-ip create \
+		--name ${_pubIpName3} \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--allocation-method Static \
+		--sku Basic \
+		--version IPv4 \
+		--zone ${_vmZone3} \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az network public-ip create ${_pubIpName3}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create an Azure network interface (NIC) object for use with the third VM...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az network nic create ${_nicName3}..." | tee -a ${_logFile}
+	az network nic create \
+		--name ${_nicName3} \
+		--vnet-name ${_vnetName} \
+		--subnet ${_subnetName} \
+		--network-security-group ${_nsgName} \
+		--public-ip-address ${_pubIpName3} \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az network nic create ${_nicName3}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
+	#------------------------------------------------------------------------
+	# Create the third Azure virtual machine (VM), intended to be used as the
+	# Oracle DataGuard FSFO observer node...
+	#------------------------------------------------------------------------
+	echo "`date` - INFO: az vm create ${_vmName3}..." | tee -a ${_logFile}
+	az vm create \
+		--name ${_vmName3} \
+		--image ${_vmUrn}:latest \
+		--admin-username ${_azureOwner} \
+		--size ${_vmObsvrInstanceType} \
+		--zone ${_vmZone3} \
+		--nics ${_nicName3} \
+		--os-disk-name ${_vmName3}-osdisk \
+		--os-disk-size-gb ${_vmOsDiskSize} \
+		--os-disk-caching ReadWrite \
+		--tags owner=${_azureOwner} project=${_azureProject} \
+		--generate-ssh-keys \
+		--verbose >> ${_logFile} 2>&1
+	if (( $? != 0 )); then
+		echo "`date` - FAIL: az vm create ${_vmName3}" | tee -a ${_logFile}
+		exit 1
+	fi
+	#
 fi
 #
 #--------------------------------------------------------------------------------
@@ -552,7 +632,6 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: az network public-ip show ${_pubIpName1}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr1} >> ${_logFile} 2>&1
 echo "`date` - INFO: public IP ${_ipAddr1} for ${_vmName1}..." | tee -a ${_logFile}
 #
 echo "`date` - INFO: az network public-ip show ${_pubIpName2}..." | tee -a ${_logFile}
@@ -565,7 +644,6 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: az network public-ip show ${_pubIpName2}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr2} >> ${_logFile} 2>&1
 echo "`date` - INFO: public IP ${_ipAddr2} for ${_vmName2}..." | tee -a ${_logFile}
 #
 echo "`date` - INFO: az network public-ip show ${_pubIpName3}..." | tee -a ${_logFile}
@@ -578,8 +656,15 @@ if (( $? != 0 )); then
 	echo "`date` - FAIL: az network public-ip show ${_pubIpName3}" | tee -a ${_logFile}
 	exit 1
 fi
-ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr3} >> ${_logFile} 2>&1
 echo "`date` - INFO: public IP ${_ipAddr3} for ${_vmName3}..." | tee -a ${_logFile}
+#
+#--------------------------------------------------------------------------------
+# Remove any previous entries of the IP address from the "known hosts" config
+# file...
+#--------------------------------------------------------------------------------
+ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr1} >> ${_logFile} 2>&1
+ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr2} >> ${_logFile} 2>&1
+ssh-keygen -f "${HOME}/.ssh/known_hosts" -R ${_ipAddr3} >> ${_logFile} 2>&1
 #
 #--------------------------------------------------------------------------------
 # SSH into all three VM's to stop the Linux firewall daemon, if it is running...
@@ -587,20 +672,17 @@ echo "`date` - INFO: public IP ${_ipAddr3} for ${_vmName3}..." | tee -a ${_logFi
 echo "`date` - INFO: systemctl stop firewalld on ${_vmName1}..." | tee -a ${_logFile}
 ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr1} "sudo systemctl stop firewalld" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo systemctl stop firewalld on ${_vmName1}" | tee -a ${_logFile}
-	exit 1
+	echo "`date` - WARN: sudo systemctl stop firewalld on ${_vmName1}" | tee -a ${_logFile}
 fi
 echo "`date` - INFO: systemctl stop firewalld on ${_vmName2}..." | tee -a ${_logFile}
 ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr2} "sudo systemctl stop firewalld" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo systemctl stop firewalld on ${_vmName2}" | tee -a ${_logFile}
-	exit 1
+	echo "`date` - WARN: sudo systemctl stop firewalld on ${_vmName2}" | tee -a ${_logFile}
 fi
 echo "`date` - INFO: systemctl stop firewalld on ${_vmName3}..." | tee -a ${_logFile}
 ssh -o StrictHostKeyChecking=no ${_azureOwner}@${_ipAddr3} "sudo systemctl stop firewalld" >> ${_logFile} 2>&1
 if (( $? != 0 )); then
-	echo "`date` - FAIL: sudo systemctl stop firewalld on ${_vmName3}" | tee -a ${_logFile}
-	exit 1
+	echo "`date` - WARN: sudo systemctl stop firewalld on ${_vmName3}" | tee -a ${_logFile}
 fi
 #
 #--------------------------------------------------------------------------------
