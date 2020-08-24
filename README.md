@@ -25,22 +25,47 @@ Sample output can be found in the file "cr_oradg_output.txt".
 
 The script has command-line parameters, all of which have default values.  To display the usage message, enter "`./cr_oradg.sh -h`"...
 
-	Usage: $0 -G val -H val -I val -O val -P val -S val -c val -d val -i val -p val -r val -s val -u val -v
+	cr_oradg.sh -G val -H val -I val -N -M -O val -P val -S val -c val -d val -i val -p val -r val -s val -u val -v -w val
+
 	where:
-		-G resource=group-name	name of the Azure resource group (default: `{owner}-{project}-rg`)
-		-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_DS1_v2)
-		-H ORACLE_HOME          full path of Oracle software (default: /u01/app/oracle/product/12.2.0/dbhome_1)
-		-O owner-tag		name of the owner to use in Azure resource tags (no default)
-		-P project-tag		name of the project to use in Azure resource tags (no default)
-		-S subscription		name of the Azure subscription (no default)
-		-c ReadOnly | None	Azure managed disk caching: None (off) or ReadOnly (default)
-		-d domain-name		IP domain name (default: internal.cloudapp.net)
-		-i db-instance-type	name of the Azure VM instance type for database nodes (default: Standard_DS11-1_v2)
-		-p Oracle-port		port number of the Oracle TNS Listener (default: 1521)
-		-r region		name of Azure region (default: westus2)
-		-s ORACLE_SID		Oracle System ID (SID) value (default: oradb01)
-		-u urn			Azure URN for the VM from the marketplace (default: Oracle:Oracle-Database-Ee:12.2.0.1:12.2.20180725)
-		-v			set verbose output is true (default: terse)
+
+	-G resource=group-name	name of the Azure resource group (default: `{_azureOwner}-{_azureProject}-rg`)
+	-H ORACLE_HOME		full path of the ORACLE_HOME software (default: /u01/app/oracle/product/12.2.0/dbhome_1)
+	-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_DS1_v2)
+	-N			skip steps to create vnet/subnet, public-IP, NSG, rules, and PPG (default: false)
+	-M			skip steps to create VMs and storage (default: false)
+	-O owner-tag		name of the owner to use in Azure tags (default: `whoami`)
+	-P project-tag		name of the project to use in Azure tags (default: oradg)
+	-S subscription		name of the Azure subscription (no default)
+	-V vip-IPaddr		IP address for the virtual IP (VIP) (default: 10.0.0.10)
+	-d domain-name		IP domain name (default: internal.cloudapp.net)
+	-i instance-type	name of the Azure VM instance type for database nodes (default: Standard_DS11-1_v2)
+	-p Oracle-port		port number of the Oracle TNS Listener (default: 1521)
+	-r region		name of Azure region (default: westus2)
+	-s ORACLE_SID		Oracle System ID (SID) value (default: oradb01)
+	-u urn			URN from Azure marketplace (default: Oracle:Oracle-Database-Ee:12.2.0.1:12.2.20180725)
+	-v                      set verbose output is true (default: false)
+	-w SYS/SYSTEM pwd	initial password for Oracle database SYS and SYSTEM accounts (default: oracleA1)
+
+## Usage notes:
+
+	1) Azure subscription must be specified with "-S" switch, always
+
+	2) Azure owner, default is output of "whoami" command in shell, can be specified using "-O" switch on command-line
+
+	3) Azure project, default is "oradg", can be specified using "-P" switch on command-line
+
+	4) Azure resource group, specify with "-G" switch or with a combination of "-O" (project owner tag) and "-P" (project name) values (default: "(project owner tag)-(project name)-rg").
+
+	   For example, if the project owner tag is "abc" and the project name is "beetlejuice", then by default the resource group is expected to be named "abc-beetlejuice-rg", unless changes have been specified using the "-G", "-O", or "-P" switches
+
+	5) Use the "-v" (verbose) switch to verify that program variables have the expected input values from the command-line
+
+	6) For users who are expected to use prebuilt storage accounts and networking (i.e. vnet, subnet, network security groups, etc), consider using the "-N" switch to accept these as prerequisites 
+
+	Please be aware that Azure owner (i.e. "-O") and Azure project (i.e. "-P") are used to generate names for the Azure resource group, storage account, virtual network, subnet, network security group and rules, VM, and storage disks.  Use the "-v" switch to verify expected naming.
+
+	The "-N" and "-M" switches were mainly used for debugging, and might well be removed in more mature versions of the script.  They intended to skip over some steps if something failed later on.
 
 ## Testing DataGuard switchover and failover
 
