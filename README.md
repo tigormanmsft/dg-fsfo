@@ -7,7 +7,7 @@ This bash script (i.e. "cr_oradg.sh") includes Azure CLI commands to fully autom
 3. Create a network security group (NSG) and rules to permit access by SSH
 4. Create two "database" VMs and one "observer" VM, using an Oracle database Enterprise Edition URN from the marketplace
 5. Create a data disk on each "database" VM using the specified managed disk
-6. Label, paritition, and format the data disk into an EXT4 filesystem mounted at "/u02" on each "database" VM
+6. Label, paritition, and format the data disk into an XFS filesystem mounted at "/u02" on each "database" VM
 7. Use the Oracle Database Creation Assistant (DBCA) to create an Oracle database and listener on the primary "database" VM
 8. Configure the primary database for DataGuard
 9. Duplicate the primary database to the standby "database" VM using DBCA
@@ -49,17 +49,16 @@ The script has command-line parameters, all of which have default values.  To di
 
 	where:
 
-	-G resource=group-name	name of the Azure resource group (default: `{_azureOwner}-{_azureProject}-rg`)
+	-G resource-group-name	name of the Azure resource group (default: `{_azureOwner}-{_azureProject}-rg`)
 	-H ORACLE_HOME		full path of the ORACLE_HOME software (default: /u01/app/oracle/product/12.2.0/dbhome_1)
-	-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_DS1_v2)
+	-I obsvr-instance-type	name of the Azure VM instance type for DataGuard observer node (default: Standard_D2_v4)
 	-N			skip steps to create vnet/subnet, public-IP, NSG, rules, and PPG (default: false)
 	-M			skip steps to create VMs and storage (default: false)
 	-O owner-tag		name of the owner to use in Azure tags (default: `whoami`)
 	-P project-tag		name of the project to use in Azure tags (default: oradg)
 	-S subscription		name of the Azure subscription (no default)
-	-V vip-IPaddr		IP address for the virtual IP (VIP) (default: 10.0.0.10)
 	-d domain-name		IP domain name (default: internal.cloudapp.net)
-	-i instance-type	name of the Azure VM instance type for database nodes (default: Standard_DS11-1_v2)
+	-i instance-type	name of the Azure VM instance type for database nodes (default: Standard_D4ds_v4)
 	-p Oracle-port		port number of the Oracle TNS Listener (default: 1521)
 	-r region		name of Azure region (default: westus2)
 	-s ORACLE_SID		Oracle System ID (SID) value (default: oradb01)
